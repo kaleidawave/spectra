@@ -1,0 +1,25 @@
+[package]
+name = "spectra"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "spectra"
+path = "src/lib.rs"
+
+[[bin]]
+name = "spectra"
+path = "src/main.rs"
+
+[dependencies]
+simple-markdown-parser = { git = "https://github.com/kaleidawave/simple-markdown-parser", version = "0.0.7", branch = "improvements" }
+pretty_assertions = "1.4.1"
+crossterm = "0.29.0"
+colored = "3.0.0"
+lahl = "0.0.3"
+simple-yaml-parser = "0.0.1"
+json-builder-macro = "0.0.3"
+
+[lints.clippy]
+pedantic = "warn"

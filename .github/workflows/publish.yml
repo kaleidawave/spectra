@@ -1,0 +1,75 @@
+name: Build assets for projects
+
+on: push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run check
+        run: cargo check
+
+      # test setup
+      - uses: oven-sh/setup-bun@v2
+      - name: Run setup
+        run: cargo build --example example_stdin_stdout_program
+      # end test setup
+
+      - name: Run test
+        run: cargo test
+
+  publish-assets:
+    permissions: write-all
+    needs: check
+
+    # TODO enable when ready
+    if: false
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+        - os: windows-latest
+          platform-name: x86_64-pc-windows
+          executable-extension: ".exe"
+        - os: ubuntu-latest
+          platform-name: x86_64-unknown-linux
+        - os: macos-latest
+          platform-name: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      PROFILE: dev
+      OUT: target/debug
+      GH_RELEASE: assets
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Set variables
+        id: information
+        shell: bash
+        run: |
+          echo "GITHUB_RUN_DATE=$(TZ="Europe/London" date +"%Y-%m-%d %T")" >> "$GITHUB_OUTPUT"
+          echo "GIT_LAST_COMMIT=$(git log -n 1 --format="%H")" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        run: cargo build --profile ${{ env.PROFILE }}
+        env:
+          GITHUB_RUN_DATE: ${{ steps.information.outputs.GITHUB_RUN_DATE }}
+          GIT_LAST_COMMIT: ${{ steps.information.outputs.GIT_LAST_COMMIT }}
+
+      - name: Publish binary
+        shell: bash
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          FROM="${{ env.OUT }}/spectra${{ matrix.executable-extension }}"
+          TO="spectra-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
+          mv $FROM $TO
+          gh release upload $GH_RELEASE "$TO"
