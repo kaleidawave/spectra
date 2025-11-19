@@ -1,6 +1,5 @@
 use spectra::{
-    RunConfiguration, extract_tests, run_tests_under_path,
-    runners,
+    RunConfiguration, extract_tests, run_tests_under_path, runners,
     utilities::{filter, visit_specification_files},
 };
 
