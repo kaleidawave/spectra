@@ -149,9 +149,16 @@ fn run() -> Result<(), ExitCode> {
                 }
             } else {
                 let command = command.unwrap();
-                let command = runners::program::Command::new(&command);
-
-                let result = run_tests_under_path(markdown, command, &run_configuration);
+                let result = if let Some(after) = command.strip_prefix("rust:") {
+                    let (path, name) = after.split_once("::").unwrap_or((after, "test"));
+                    let runner =
+                        runners::compiled::rust::Rust::new(path.to_owned(), name.to_owned())
+                            .unwrap();
+                    run_tests_under_path(markdown, runner, &run_configuration)
+                } else {
+                    let command = runners::program::Command::new(&command);
+                    run_tests_under_path(markdown, command, &run_configuration)
+                };
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
                 }
