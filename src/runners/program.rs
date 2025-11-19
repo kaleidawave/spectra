@@ -18,7 +18,7 @@ pub struct Running {
 pub struct Command {
     name: String,
     arguments: Vec<String>,
-    ignore_exit_code: bool,
+    _ignore_exit_code: bool,
     timeout: Option<time::Duration>,
     currently_running: Option<Running>,
 }
@@ -34,7 +34,7 @@ impl Command {
         let mut arguments: Vec<String> = iter.map(std::borrow::Cow::into_owned).collect();
 
         let mut stdin_stdout_communication = false;
-        let mut ignore_exit_code = false;
+        let mut _ignore_exit_code = false;
         let mut timeout = None;
 
         if let Some(idx) = arguments
@@ -50,7 +50,7 @@ impl Command {
             .position(|arg| matches!(arg.as_str(), "--ignore-exit-code"))
         {
             arguments.remove(idx);
-            ignore_exit_code = true;
+            _ignore_exit_code = true;
         }
 
         if let Some(idx) = arguments
@@ -70,7 +70,7 @@ impl Command {
         let mut this = Self {
             name,
             arguments,
-            ignore_exit_code,
+            _ignore_exit_code,
             currently_running: None,
             timeout,
         };
