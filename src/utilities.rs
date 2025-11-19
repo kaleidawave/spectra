@@ -30,34 +30,19 @@ pub mod filter {
     }
 
     #[derive(Debug, Clone)]
-    pub struct StringMatch {
-        pub matcher: Vec<String>,
+    pub struct GlobPattern {
+        pub matcher: glob::Pattern,
         pub positive: bool,
         pub case_sensitive: bool,
     }
 
-    impl StringMatch {
-        fn matching_case(lhs: &str, rhs: &str, case_sensitive: bool) -> bool {
-            if case_sensitive {
-                lhs == rhs
-            } else {
-                lhs.eq_ignore_ascii_case(rhs)
-            }
-        }
-
-        /// Split item and test each substring with rhs
-        fn matching_item(item: &str, matcher: &str, case_sensitive: bool) -> bool {
-            item.split(&[' ', '-'])
-                .any(|item| Self::matching_case(item, matcher, case_sensitive))
-        }
-    }
-
-    impl Filter for StringMatch {
+    impl Filter for GlobPattern {
         fn should_skip(&self, name: &str) -> bool {
-            let result = self
-                .matcher
-                .iter()
-                .any(|matcher| Self::matching_item(name, matcher, self.case_sensitive));
+            let options = glob::MatchOptions {
+                case_sensitive: self.case_sensitive,
+                ..glob::MatchOptions::default()
+            };
+            let result = self.matcher.matches_with(name, options);
 
             if self.positive { !result } else { result }
         }

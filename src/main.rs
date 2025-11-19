@@ -1,6 +1,6 @@
 use spectra::{
     RunConfiguration, extract_tests, run_tests_under_path,
-    runners::program::{Command, Commands},
+    runners,
     utilities::{filter, visit_specification_files},
 };
 
@@ -101,7 +101,7 @@ fn run() -> Result<(), ExitCode> {
 
             println!("spectra (WIP){after} (powered by 'simple-markdown-parser')");
         }
-        "test" => {
+        "test" | "compare" => {
             let mut markdown = None;
             let mut command = None;
             let mut run_configuration = RunConfiguration::default();
@@ -118,58 +118,10 @@ fn run() -> Result<(), ExitCode> {
                     // skip and including options
                     name @ ("only" | "skip" | "only-cs" | "skip-cs") => {
                         let matcher = argument.value.unwrap();
-                        let filter = filter::StringMatch {
+                        let filter = filter::GlobPattern {
                             case_sensitive: name.ends_with("-cs"),
                             positive: name.starts_with("only"),
-                            matcher: matcher.split(',').map(ToOwned::to_owned).collect(),
-                        };
-                        run_configuration.filter = Some(Box::new(filter));
-                    }
-                    // run configuration
-                    "interactive" => run_configuration.interactive = true,
-                    "dry-run" => run_configuration.dry_run = true,
-                    "lists-as-expected" => run_configuration.lists_to_code_block = true,
-                    // // command configuration
-                    // "ignore-exit-code" => command_configuration.ignore_exit_code = true,
-                    // "stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
-                    argument => unreachable!("{argument:?}"),
-                }
-            }
-
-            let markdown = markdown.unwrap();
-            let markdown = Path::new(&markdown);
-            let command = command.unwrap();
-            let command = Command::new(&command);
-
-            let result = run_tests_under_path(markdown, command, &run_configuration);
-            if result.is_err() {
-                return Err(ExitCode::FAILURE);
-            }
-        }
-        "compare" => {
-            let mut markdown = None;
-            let mut command_pattern = None;
-
-            let mut run_configuration = spectra::RunConfiguration {
-                dry_run: true,
-                ..Default::default()
-            };
-            for argument in arguments {
-                let argument = argument_result_or_out(argument)?;
-                match argument.name {
-                    "markdown" => {
-                        markdown = argument.value;
-                    }
-                    "command" => {
-                        command_pattern = argument.value;
-                    }
-                    // skip and including options
-                    name @ ("only" | "skip" | "only-cs" | "skip-cs") => {
-                        let matcher = argument.value.unwrap();
-                        let filter = filter::StringMatch {
-                            case_sensitive: name.ends_with("-cs"),
-                            positive: name.starts_with("only"),
-                            matcher: matcher.split(',').map(ToOwned::to_owned).collect(),
+                            matcher: glob::Pattern::new(&matcher).expect("invalid glob pattern"),
                         };
                         run_configuration.filter = Some(Box::new(filter));
                     }
@@ -187,13 +139,23 @@ fn run() -> Result<(), ExitCode> {
             let markdown = markdown.unwrap();
             let markdown = Path::new(&markdown);
 
-            let command_pattern = command_pattern.unwrap();
-            // command'S'
-            let command_pattern = Commands::new(&command_pattern);
+            if selected.name == "compare" {
+                let command_pattern = command.unwrap();
+                // command'S'
+                let command_pattern = runners::program::Commands::new(&command_pattern);
 
-            let result = run_tests_under_path(markdown, command_pattern, &run_configuration);
-            if result.is_err() {
-                return Err(ExitCode::FAILURE);
+                let result = run_tests_under_path(markdown, command_pattern, &run_configuration);
+                if result.is_err() {
+                    return Err(ExitCode::FAILURE);
+                }
+            } else {
+                let command = command.unwrap();
+                let command = runners::program::Command::new(&command);
+
+                let result = run_tests_under_path(markdown, command, &run_configuration);
+                if result.is_err() {
+                    return Err(ExitCode::FAILURE);
+                }
             }
         }
         "list" => {
