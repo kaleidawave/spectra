@@ -64,7 +64,7 @@ fn program_crash() {
 
     let commands: &[&str] = &[
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-crash",
-        "./target/debug/examples/example_stdin_stdout_program --uppercase --rpc --intentional-crash",
+        "cargo run --example example_stdin_stdout_program -- --uppercase --rpc --intentional-crash",
     ];
 
     for mut runner in commands.iter().copied().map(Command::new) {
@@ -109,7 +109,7 @@ fn program_options() {
 
     let commands: &[&str] = &[
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc",
-        "./target/debug/examples/example_stdin_stdout_program --uppercase --rpc",
+        "cargo run --example example_stdin_stdout_program -- --uppercase --rpc",
     ];
 
     for mut runner in commands.iter().copied().map(Command::new) {

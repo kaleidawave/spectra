@@ -147,12 +147,6 @@ impl Runner for Command {
                 }
             };
 
-            if command_no_longer_running {
-                // eprintln!("restarting after timeout or crash");
-                let running = self.spawn();
-                let _ = self.currently_running.insert(running);
-            }
-
             let (stdout, stderr) = {
                 use std::fmt::Write;
 
@@ -173,7 +167,9 @@ impl Runner for Command {
                             if test.merge_stderr {
                                 writeln!(&mut stdout, "[{message}]").unwrap();
                             } else if command_no_longer_running {
-                                writeln!(&mut stdout, "* {message}").unwrap();
+                                if !message.is_empty() {
+                                    writeln!(&mut stdout, "* {message}").unwrap();
+                                }
                             } else {
                                 writeln!(&mut stderr, "{message}").unwrap();
                             }
@@ -188,7 +184,14 @@ impl Runner for Command {
             };
 
             if command_no_longer_running {
-                Err(stderr)
+                // eprintln!("restarting after timeout or crash {stdout:?} / {stderr:?}");
+                let running = self.spawn();
+                let _ = self.currently_running.insert(running);
+            }
+
+            if command_no_longer_running {
+                // Rust prints crash messages to stdout
+                Err(if stdout.is_empty() { stderr } else { stdout })
             } else {
                 Ok((stdout, stderr))
             }

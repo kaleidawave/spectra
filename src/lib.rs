@@ -1,10 +1,7 @@
 pub mod runners;
 pub mod utilities;
 
-use utilities::{
-    filter, is_equal_ignore_new_line_sequence, run_in_alternative_display,
-    visit_specification_files,
-};
+use utilities::{filter, is_equal_ignore_new_line_sequence, run_in_alternative_display};
 
 use colored::Colorize as Colourise;
 use std::io;
@@ -51,6 +48,21 @@ pub struct Input {
 pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
     use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
 
+    fn add_one(on: &str) -> String {
+        let on = on.trim_end();
+        if let Some((before, after)) = on.rsplit_once('(')
+            && let Some(maybe_number) = after.strip_suffix(')')
+            && let Ok(value) = <usize as std::str::FromStr>::from_str(maybe_number)
+        {
+            let before = before.trim_end();
+            let next = value + 1;
+            format!("{before} ({next})")
+        } else {
+            let initial = 1;
+            format!("{on} ({initial})")
+        }
+    }
+
     let mut tests: Vec<Test> = Vec::new();
     let mut current_test = Test::default();
     let mut section = String::new();
@@ -62,12 +74,33 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
 
     let result = parse::<()>(content, |element| {
         let mut is_with = false;
+
+        let add_new = if let MarkdownElement::Heading { level, .. } = element {
+            level >= 3
+        } else if let MarkdownElement::CodeBlock(_) = element {
+            current_test.expected.is_some()
+        } else {
+            false
+        };
+
+        if add_new && !current_test.case.is_empty() {
+            let mut test = std::mem::take(&mut current_test);
+            if test.name.ends_with("(skip)") {
+                return Ok(());
+            }
+            if let MarkdownElement::CodeBlock(_) = element {
+                test.name = add_one(&test.name);
+                // TODO could this be better?
+                current_test.name = add_one(&test.name);
+            }
+
+            tests.push(test);
+        }
+
         match element {
             MarkdownElement::Heading { level, content } => {
+                // TODO
                 if level >= 3 {
-                    if !current_test.case.is_empty() {
-                        tests.push(std::mem::take(&mut current_test));
-                    }
                     current_test.name = content.0.to_owned(); //.no_decoration();
                     section.clone_into(&mut current_test.section);
                 } else {
@@ -91,18 +124,17 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
                     let _ = current_test.expected.insert(content);
                 }
             }
-            MarkdownElement::CodeBlock(CodeBlock { code, .. }) => {
+            MarkdownElement::CodeBlock(CodeBlock { raw_code, .. }) => {
+                if current_test.name.is_empty() {
+                    return Ok(());
+                }
+
                 if last_was_with {
-                    code.clone_into(&mut current_test.options);
+                    raw_code.clone_into(&mut current_test.options);
                 } else if current_test.case.is_empty() {
-                    code.clone_into(&mut current_test.case);
+                    raw_code.clone_into(&mut current_test.case);
                 } else if current_test.expected.is_none() {
-                    let _ = current_test.expected.insert(code.to_owned());
-                } else {
-                    // create a new test
-                    let next_name = format!("{} *", current_test.name);
-                    tests.push(std::mem::take(&mut current_test));
-                    current_test.name = next_name;
+                    let _ = current_test.expected.insert(raw_code.to_owned());
                 }
             }
             MarkdownElement::Quote(QuoteBlock { inner, .. }) => {
@@ -112,15 +144,28 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
             }
             MarkdownElement::Frontmatter(frontmatter) => {
                 let result = frontmatter.parse_yaml(|keys, value| {
-                    if let [simple_yaml_parser::YAMLKey::Slice("expected_runner")] = keys {
-                        if let simple_yaml_parser::RootYAMLValue::String(value) = value {
-                            // TODO this will be different in future right?
-                            expected_runner = Some(value.to_owned());
-                        } else {
-                            panic!("expected runner to be string")
+                    use simple_yaml_parser::YAMLKey::Slice;
+
+                    match keys {
+                        [Slice("expected_runner")] => {
+                            if let simple_yaml_parser::RootYAMLValue::String(value) = value {
+                                // TODO this will be different in future right?
+                                expected_runner = Some(value.to_owned());
+                            } else {
+                                panic!("expected runner to be string")
+                            }
                         }
-                    } else {
-                        eprintln!("unknown {keys:?} {value:?}");
+                        [Slice("include-language-as-option")] => {
+                            // prepends *language*\n---\n
+                            todo!();
+                        }
+                        [Slice("strip-fron-output")] => {
+                            // removes lines that end in some substring
+                            todo!();
+                        }
+                        keys => {
+                            eprintln!("unknown {keys:?} {value:?}");
+                        }
                     }
                 });
                 if let Err(err) = result {
@@ -135,7 +180,7 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
     });
 
     assert!(result.is_ok(), "{result:?}");
-    if !current_test.case.is_empty() {
+    if !(current_test.case.is_empty() || current_test.name.ends_with("(skip)")) {
         tests.push(current_test);
     }
 
@@ -183,12 +228,10 @@ pub fn run_tests(
 
         let name: std::borrow::Cow<'_, str> = if name.contains(['*', '`']) {
             use colored::{Color, ColoredString, Styles};
-            use simple_markdown_parser::{
-                ContainerResidue, MarkdownPart, PartsIterator, TextDecoration,
-            };
+            use simple_markdown_parser::{MarkdownPart, PartsIterator, TextDecoration};
 
             let mut buf = String::new();
-            for part in PartsIterator::new(name, ContainerResidue::default()) {
+            for part in PartsIterator::new(name) {
                 let mut decorated: ColoredString = part.on.into();
                 if let MarkdownPart::InlineCode = part.kind {
                     decorated.fgcolor = Some(Color::Black);
@@ -262,16 +305,14 @@ pub fn run_tests(
 
             if !configuration.skip_print_test_results {
                 if result.is_ok() {
-                    println!("test {name} ... {result}", result = "pass".green()); // "passed"?
+                    println!("test {name} ... {result}", result = "ok".green()); // "passed"?
                 } else {
                     println!("test {name} ... {result}", result = "fail".red()); // "failed" ?
                 }
             }
 
             if let Err((output, debug)) = result {
-                results
-                    .failures
-                    .push((test.name.to_string(), output, debug));
+                results.failures.push((test.name.clone(), output, debug));
             }
         }
     }
@@ -279,21 +320,25 @@ pub fn run_tests(
     results
 }
 
-pub fn run_tests_under_path(
-    path: &std::path::Path,
+pub fn run_tests_under_glob(
+    pattern: &str,
     mut runner: impl Runner,
     configuration: &RunConfiguration,
 ) -> Result<(), usize> {
     let now = std::time::Instant::now();
     let mut results = TestResults::default();
 
-    let () = visit_specification_files(path, &mut |path| {
+    let paths = glob::glob(pattern)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|path| path.is_file());
+
+    for path in paths {
         let content = std::fs::read_to_string(path).unwrap();
         let input = extract_tests(&content, configuration.lists_to_code_block);
         let result = run_tests(&input.tests, &mut runner, configuration);
         results.append(result);
-    })
-    .expect("could not visit files");
+    }
 
     runner.close();
 

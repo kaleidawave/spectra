@@ -25,3 +25,8 @@ glob = "0.3.3"
 
 [lints.clippy]
 pedantic = "warn"
+
+[package.metadata.commands]
+example = "cargo run -- test ./examples/specification.uppercase.md 'cargo run -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc'"
+example-intentional-crash = "cargo run -- test ./examples/specification.uppercase.md 'cargo run -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc --intentional-crash'"
+example-rust = "cargo run -- test ./examples/specification.uppercase.md 'rust:examples/rust-runner::get_result'"

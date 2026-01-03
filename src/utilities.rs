@@ -1,6 +1,4 @@
 use std::borrow::Cow;
-use std::io;
-use std::path::Path;
 
 #[must_use]
 pub fn is_equal_ignore_new_line_sequence(lhs: &str, rhs: &str) -> bool {
@@ -175,32 +173,6 @@ pub mod commands {
             }
         }
     }
-}
-
-pub fn visit_specification_files(path: &Path, cb: &mut dyn FnMut(&Path)) -> io::Result<()> {
-    if path.is_dir() {
-        for entry in std::fs::read_dir(path)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                visit_specification_files(&path, cb)?;
-            } else {
-                cb(&path);
-            }
-        }
-    } else if path.is_file() {
-        let skip = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_none_or(|ext| !matches!(ext, "md" | "mdspec"));
-        if !skip {
-            cb(path);
-        }
-    } else if path.is_symlink() {
-        let path = std::fs::read_link(path)?;
-        visit_specification_files(&path, cb)?;
-    }
-    Ok(())
 }
 
 pub fn run_in_alternative_display<T: Sized>(cb: impl FnOnce() -> T) -> T {

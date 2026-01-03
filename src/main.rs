@@ -1,17 +1,13 @@
-use spectra::{
-    RunConfiguration, extract_tests, run_tests_under_path, runners,
-    utilities::{filter, visit_specification_files},
-};
+use spectra::{RunConfiguration, extract_tests, run_tests_under_glob, runners, utilities::filter};
 
 use lahl::{
     CLI, Endpoint, NamedParameter, PositionalParameter, argument_result_or_out,
     command_result_or_out,
 };
-use std::path::Path;
 use std::process::ExitCode;
 
 static TEST_POSITIONAL_PARAMETERS: &[PositionalParameter] = &[
-    PositionalParameter::single("markdown", "glob path to markdown files"),
+    PositionalParameter::single("pattern", "glob path to markdown files"),
     PositionalParameter::single("command", "command to test against"),
 ];
 
@@ -39,8 +35,8 @@ static TEST_NAMED_PARAMETERS: &[NamedParameter] = &[
 ];
 
 static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::single(
-    "path",
-    "path to specification-markdown file",
+    "pattern",
+    "pattern to specification-markdown file",
 )];
 
 static LIST_PARAMETERS: &[NamedParameter] = &[
@@ -92,24 +88,25 @@ fn run() -> Result<(), ExitCode> {
 
     match selected.name {
         "info" => {
+            let version = option_env!("CARGO_PKG_VERSION").unwrap_or_default();
             let run_id = option_env!("GITHUB_RUN_ID");
             let date = option_env!("GIT_LAST_COMMIT").unwrap_or_default();
             let after = run_id
                 .map(|commit| format!(" (commit {commit} {date})"))
                 .unwrap_or_default();
 
-            println!("spectra (WIP){after} (powered by 'simple-markdown-parser')");
+            println!("spectra{version} {after} (powered by 'simple-markdown-parser')");
         }
         "test" | "compare" => {
-            let mut markdown = None;
+            let mut pattern = None;
             let mut command = None;
             let mut run_configuration = RunConfiguration::default();
 
             for argument in arguments {
                 let argument = argument_result_or_out(argument)?;
                 match argument.name {
-                    "markdown" => {
-                        markdown = argument.value;
+                    "pattern" => {
+                        pattern = argument.value;
                     }
                     "command" => {
                         command = argument.value;
@@ -135,15 +132,14 @@ fn run() -> Result<(), ExitCode> {
                 }
             }
 
-            let markdown = markdown.unwrap();
-            let markdown = Path::new(&markdown);
+            let pattern = pattern.unwrap();
 
             if selected.name == "compare" {
                 let command_pattern = command.unwrap();
                 // command'S'
                 let command_pattern = runners::program::Commands::new(&command_pattern);
 
-                let result = run_tests_under_path(markdown, command_pattern, &run_configuration);
+                let result = run_tests_under_glob(&pattern, command_pattern, &run_configuration);
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
                 }
@@ -151,13 +147,11 @@ fn run() -> Result<(), ExitCode> {
                 let command = command.unwrap();
                 let result = if let Some(after) = command.strip_prefix("rust:") {
                     let (path, name) = after.split_once("::").unwrap_or((after, "test"));
-                    let runner =
-                        runners::compiled::rust::Rust::new(path.to_owned(), name.to_owned())
-                            .unwrap();
-                    run_tests_under_path(markdown, runner, &run_configuration)
+                    let runner = runners::compiled::rust::Rust::new(path, name).unwrap();
+                    run_tests_under_glob(&pattern, runner, &run_configuration)
                 } else {
                     let command = runners::program::Command::new(&command);
-                    run_tests_under_path(markdown, command, &run_configuration)
+                    run_tests_under_glob(&pattern, command, &run_configuration)
                 };
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
@@ -165,17 +159,19 @@ fn run() -> Result<(), ExitCode> {
             }
         }
         "list" => {
-            let mut path = None;
+            let mut pattern = None;
             let mut debug = false;
             let mut as_json = false;
             let mut lists_to_code_block = false;
             let mut case_splitter = None;
 
+            // TODO filter
+
             for argument in arguments {
                 let argument = argument_result_or_out(argument)?;
                 match argument.name {
-                    "path" => {
-                        path = argument.value;
+                    "pattern" => {
+                        pattern = argument.value;
                     }
                     "debug" => {
                         debug = true;
@@ -193,16 +189,20 @@ fn run() -> Result<(), ExitCode> {
                 }
             }
 
-            let path = path.unwrap();
-            let path = Path::new(&path);
+            let pattern = pattern.unwrap();
 
             let mut count = 0;
             let mut files = 0;
 
             let mut json_buf: String = String::from("[");
 
-            visit_specification_files(path, &mut |path| {
-                let content = std::fs::read_to_string(path).unwrap();
+            let paths = glob::glob(&pattern)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|path| path.is_file());
+
+            for path in paths {
+                let content = std::fs::read_to_string(&path).unwrap();
                 let input = extract_tests(&content, lists_to_code_block);
                 if as_json {
                     for test in &input.tests {
@@ -234,8 +234,7 @@ fn run() -> Result<(), ExitCode> {
                     }
                 }
                 files += 1;
-            })
-            .expect("could not walk files");
+            }
 
             if as_json {
                 json_buf.push(']');
@@ -247,14 +246,14 @@ fn run() -> Result<(), ExitCode> {
         "specification-test-in-cargo" => {
             use std::io::Write;
 
-            let mut markdown = None;
+            let mut pattern = None;
             let mut command = None;
 
             for argument in arguments {
                 let argument = argument_result_or_out(argument)?;
                 match argument.name {
-                    "markdown" => {
-                        markdown = argument.value;
+                    "pattern" => {
+                        pattern = argument.value;
                     }
                     "command" => {
                         command = argument.value;
@@ -263,7 +262,7 @@ fn run() -> Result<(), ExitCode> {
                 }
             }
 
-            let markdown = markdown.unwrap();
+            let pattern = pattern.unwrap();
             let command = command.unwrap();
 
             {
@@ -285,7 +284,7 @@ fn run() -> Result<(), ExitCode> {
 
                 writeln!(&mut test_file, "use std::process::{{Command, ExitCode}};").unwrap();
                 writeln!(&mut test_file, "fn main() -> ExitCode {{").unwrap();
-                writeln!(&mut test_file, "let output = Command::new(\"spectra\").arg(\"test\").arg(\"{markdown}\").arg(\"{command}\").status().unwrap();").unwrap();
+                writeln!(&mut test_file, "let output = Command::new(\"spectra\").arg(\"test\").arg(\"{pattern}\").arg(\"{command}\").status().unwrap();").unwrap();
                 writeln!(&mut test_file, "if output.code().is_none_or(|item| item == 0) {{ ExitCode::SUCCESS }} else {{ ExitCode::FAILURE }}").unwrap();
                 writeln!(&mut test_file, "}}").unwrap();
             }

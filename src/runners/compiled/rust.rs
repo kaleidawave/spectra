@@ -34,7 +34,8 @@ fn test() {
 }
 
 impl Rust {
-    pub fn new(path: String, name: String) -> Result<Self, String> {
+    #[allow(clippy::missing_transmute_annotations, clippy::used_underscore_binding)]
+    pub fn new(path: &str, name: &str) -> Result<Self, String> {
         let output = std::process::Command::new("cargo")
             .arg("rustc")
             .arg("--crate-type")
@@ -42,7 +43,7 @@ impl Rust {
             .arg("--message-format")
             .arg("json")
             .stderr(std::process::Stdio::inherit())
-            .current_dir(&path)
+            .current_dir(path)
             .output();
 
         let Ok(output) = output else {
@@ -51,7 +52,7 @@ impl Rust {
         if !output.status.success() {
             return Err("could not build library".to_owned());
         }
-    
+
         let out_json = str::from_utf8(&output.stdout).unwrap();
         let Some(artifact_name) = get_output_name_from_json(out_json) else {
             return Err(format!("JSON does not contain artifact: {out_json}"));
@@ -64,10 +65,12 @@ impl Rust {
             let Ok(function): Result<libloading::Symbol<'_, FunctionType>, _> =
                 _library.get(name.as_bytes())
             else {
-                return Err(format!("library {artifact_name:?} does not have export {name}"));
+                return Err(format!(
+                    "library {artifact_name:?} does not have export {name}"
+                ));
             };
 
-            // because library is owned this is fine?
+            // Promote to higher lifetime as library is owned
             let function = std::mem::transmute(function);
             Ok(Self { _library, function })
         }
