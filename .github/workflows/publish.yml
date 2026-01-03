@@ -15,6 +15,7 @@ jobs:
 
       # test setup
       - uses: oven-sh/setup-bun@v2
+
       - name: Run setup
         run: cargo build --example example_stdin_stdout_program
       # end test setup
@@ -43,11 +44,30 @@ jobs:
     env:
       PROFILE: dev
       OUT: target/debug
+      # can be overwritten
       GH_RELEASE: canary
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: kaleidawave/release-downloader@improvements
+        env: { GH_TOKEN: "${{ github.token }}" }
+        with: { items: 'kaleidawave/crates-release-gh-action@canary[crates-release]' }
+
+      - name: Create release if on main branch
+        if: ${{ github.ref == 'refs/heads/main' }}
+        shell: bash
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          # update version and get tag
+          version=$(crates-release change-version ${{ secrets.NEXT_VERSION }} --print-new-version)
+
+          git tag -a "v$version" -m "spectra $version"
+          git push --tags
+
+          gh release create "v$version" -t "Spectra $version"
+          # so that release knows where to upload assets
+          echo "GH_RELEASE=v$version" >> "$GITHUB_ENV"
 
       - name: Set variables
         id: information
@@ -67,6 +87,6 @@ jobs:
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
           FROM="${{ env.OUT }}/spectra${{ matrix.executable-extension }}"
-          TO="spectra-${{ github.ref_name }}-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
+          TO="spectra-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
           mv $FROM $TO
-          gh release upload $GH_RELEASE "$TO"
+          gh release upload $GH_RELEASE "$TO" --clobber
