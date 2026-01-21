@@ -16,6 +16,7 @@ pub struct Test {
     pub expected: Option<String>,
     pub command: bool,
     pub merge_stderr: bool,
+    pub transform: TransformOutput,
 }
 
 pub trait Runner: Sized {
@@ -33,7 +34,6 @@ pub trait Runner: Sized {
 pub struct RunConfiguration {
     pub interactive: bool,
     pub dry_run: bool,
-    pub lists_to_code_block: bool,
     pub no_colors: bool,
     pub filter: Option<Box<dyn filter::Filter>>,
     pub skip_print_test_results: bool,
@@ -44,24 +44,49 @@ pub struct Input {
     pub expected_runner: Option<String>,
 }
 
-#[must_use]
-pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
-    use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
+#[derive(Debug, Default, Copy, Clone)]
+pub struct Options {
+    lists_to_code_block: bool,
+    transform: TransformOutput,
+    merge_stderr: bool,
+}
 
-    fn add_one(on: &str) -> String {
-        let on = on.trim_end();
-        if let Some((before, after)) = on.rsplit_once('(')
-            && let Some(maybe_number) = after.strip_suffix(')')
-            && let Ok(value) = <usize as std::str::FromStr>::from_str(maybe_number)
-        {
-            let before = before.trim_end();
-            let next = value + 1;
-            format!("{before} ({next})")
-        } else {
-            let initial = 1;
-            format!("{on} ({initial})")
+#[derive(Debug, Default, Copy, Clone)]
+pub enum TransformOutput {
+    #[default]
+    None,
+    Basic,
+}
+
+impl TransformOutput {
+    pub fn transform(&self, on: String) -> String {
+        match self {
+            Self::None => on,
+            Self::Basic => {
+                let mut buf = String::new();
+                for line in on.lines() {
+                    let tline = line.strip_suffix(',').unwrap_or(line);
+                    // WIP
+                    let skip = tline.ends_with("None") || tline.ends_with("\"\"");
+
+                    /* || tline.ends_with("]") || tline.ends_with("}") || tline.ends_with(")"); */
+
+                    if !skip {
+                        if !buf.is_empty() {
+                            buf.push('\n');
+                        }
+                        buf.push_str(line);
+                    }
+                }
+                buf
+            }
         }
     }
+}
+
+#[must_use]
+pub fn extract_tests(content: &str, parent_options: Options) -> Input {
+    use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
 
     let mut tests: Vec<Test> = Vec::new();
     let mut current_test = Test::default();
@@ -72,32 +97,100 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
 
     let mut last_was_with = false;
 
+    let mut in_block = 0;
+
+    let mut lists_to_code_block = parent_options.lists_to_code_block;
+    let mut transform = parent_options.transform;
+    let mut merge_stderr = parent_options.merge_stderr;
+
+    // TODO
+    // let mut only_language: Option<String> = None;
+
     let result = parse::<()>(content, |element| {
         let mut is_with = false;
 
         let add_new = if let MarkdownElement::Heading { level, .. } = element {
-            level >= 3
+            level >= 3 && !current_test.case.is_empty()
         } else if let MarkdownElement::CodeBlock(_) = element {
+            // dbg!(&element, &current_test);
             current_test.expected.is_some()
         } else {
             false
         };
 
-        if add_new && !current_test.case.is_empty() {
+        if add_new {
             let mut test = std::mem::take(&mut current_test);
+
+            test.merge_stderr = merge_stderr;
+            test.transform = transform;
+
+            // Skip the element
             if test.name.ends_with("(skip)") {
                 return Ok(());
             }
-            if let MarkdownElement::CodeBlock(_) = element {
-                test.name = add_one(&test.name);
-                // TODO could this be better?
-                current_test.name = add_one(&test.name);
+            if let MarkdownElement::Heading { .. } = element {
+                if in_block > 0 {
+                    in_block += 1;
+                    test.name = format!("{name} ({in_block})", name = test.name);
+                }
+                in_block = 0;
+            } else {
+                in_block += 1;
+                current_test.name = test.name.clone();
+                test.name = format!("{name} ({in_block})", name = test.name);
             }
 
             tests.push(test);
         }
 
         match element {
+            MarkdownElement::Frontmatter(frontmatter) => {
+                let result = frontmatter.parse_yaml(|keys, value| {
+                    use simple_yaml_parser::YAMLKey::Slice;
+                    // use simple_yaml_parser::RootYAMLValue;
+
+                    match keys {
+                        [Slice("expected_runner")] => {
+                            if let simple_yaml_parser::RootYAMLValue::String(value) = value {
+                                // TODO this will be different in future right?
+                                expected_runner = Some(value.to_owned());
+                            } else {
+                                panic!("expected runner to be string")
+                            }
+                        }
+                        [Slice("include-language-as-option")] => {
+                            // prepends *language*\n---\n
+                            todo!();
+                        }
+                        [Slice("transform")] => {
+                            // TODO
+                            // removes lines that end in some substring
+                            dbg!();
+                            transform = TransformOutput::Basic;
+                        }
+                        [Slice("merge-stderr")] => {
+                            // TODO
+                            // removes lines that end in some substring
+                            dbg!();
+                            merge_stderr = true;
+                        }
+                        [Slice("lists-to-code-blocks")] => {
+                            // TODO
+                            lists_to_code_block = true;
+                            // if let RootYAMLValue::Boolean(value) = value {
+                            // } else {
+                            //     eprintln!("expected boolean");
+                            // }
+                        }
+                        keys => {
+                            eprintln!("unknown {keys:?} {value:?}");
+                        }
+                    }
+                });
+                if let Err(err) = result {
+                    eprintln!("{err:?}");
+                }
+            }
             MarkdownElement::Heading { level, content } => {
                 // TODO
                 if level >= 3 {
@@ -126,6 +219,7 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
             }
             MarkdownElement::CodeBlock(CodeBlock { raw_code, .. }) => {
                 if current_test.name.is_empty() {
+                    dbg!("unnamed");
                     return Ok(());
                 }
 
@@ -139,37 +233,7 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
             }
             MarkdownElement::Quote(QuoteBlock { inner, .. }) => {
                 if inner.0.trim() == "> Merge `stderr` here" {
-                    current_test.merge_stderr = true;
-                }
-            }
-            MarkdownElement::Frontmatter(frontmatter) => {
-                let result = frontmatter.parse_yaml(|keys, value| {
-                    use simple_yaml_parser::YAMLKey::Slice;
-
-                    match keys {
-                        [Slice("expected_runner")] => {
-                            if let simple_yaml_parser::RootYAMLValue::String(value) = value {
-                                // TODO this will be different in future right?
-                                expected_runner = Some(value.to_owned());
-                            } else {
-                                panic!("expected runner to be string")
-                            }
-                        }
-                        [Slice("include-language-as-option")] => {
-                            // prepends *language*\n---\n
-                            todo!();
-                        }
-                        [Slice("strip-fron-output")] => {
-                            // removes lines that end in some substring
-                            todo!();
-                        }
-                        keys => {
-                            eprintln!("unknown {keys:?} {value:?}");
-                        }
-                    }
-                });
-                if let Err(err) = result {
-                    eprintln!("{err:?}");
+                    merge_stderr = true;
                 }
             }
             _ => {}
@@ -181,6 +245,12 @@ pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
 
     assert!(result.is_ok(), "{result:?}");
     if !(current_test.case.is_empty() || current_test.name.ends_with("(skip)")) {
+        if in_block > 0 {
+            in_block += 1;
+            current_test.name = format!("{name} ({in_block})", name = current_test.name);
+        }
+        current_test.merge_stderr = merge_stderr;
+        current_test.transform = transform;
         tests.push(current_test);
     }
 
@@ -258,7 +328,10 @@ pub fn run_tests(
                 if configuration.interactive {
                     let should_break = run_in_alternative_display(|| {
                         match result {
-                            Ok((output, _debug)) => eprintln!("Test {name}\nrecieved:\n{output}"),
+                            Ok((output, _debug)) => {
+                                let output = test.transform.transform(output);
+                                eprintln!("Test {name}\nrecieved:\n{output}")
+                            }
                             Err(output) => eprintln!("Test {name}\nerrored: {output}"),
                         }
 
@@ -274,7 +347,10 @@ pub fn run_tests(
                     }
                 } else {
                     match result {
-                        Ok((output, _debug)) => eprintln!("Test {name}\nrecieved:\n{output}"),
+                        Ok((output, _debug)) => {
+                            let output = test.transform.transform(output);
+                            eprintln!("Test {name}\nrecieved:\n{output}")
+                        }
                         Err(output) => eprintln!("Test {name}\nerrored: {output}"),
                     }
                 }
@@ -288,6 +364,7 @@ pub fn run_tests(
             let result = match result {
                 Ok((output, debug)) => {
                     if let Some(ref expected) = test.expected {
+                        let output = test.transform.transform(output);
                         if is_equal_ignore_new_line_sequence(&output, expected) {
                             Ok(())
                         } else {
@@ -335,7 +412,7 @@ pub fn run_tests_under_glob(
 
     for path in paths {
         let content = std::fs::read_to_string(path).unwrap();
-        let input = extract_tests(&content, configuration.lists_to_code_block);
+        let input = extract_tests(&content, Default::default());
         let result = run_tests(&input.tests, &mut runner, configuration);
         results.append(result);
     }
@@ -364,7 +441,7 @@ pub fn run_tests_under_content(
     mut runner: impl Runner,
     configuration: &RunConfiguration,
 ) -> Result<(), usize> {
-    let input = extract_tests(content, configuration.lists_to_code_block);
+    let input = extract_tests(content, Default::default());
     let count = input.tests.len();
 
     println!("\nrunning {count} tests");

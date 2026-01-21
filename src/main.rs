@@ -28,10 +28,6 @@ static TEST_NAMED_PARAMETERS: &[NamedParameter] = &[
         "use stdin <-> stdout communication rather that spawning for each test",
     ),
     NamedParameter::boolean("dry-run", "?"),
-    NamedParameter::boolean(
-        "lists-as-expected",
-        "use list blocks as the expected output",
-    ),
 ];
 
 static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::single(
@@ -42,10 +38,6 @@ static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::si
 static LIST_PARAMETERS: &[NamedParameter] = &[
     NamedParameter::boolean("debug", "print more information"),
     NamedParameter::boolean("as-json", "print output as JSON"),
-    NamedParameter::boolean(
-        "lists-as-expected",
-        "use list blocks as the expected output",
-    ),
     NamedParameter::value("cases-with-splitter", "print cases with passed splitter"),
 ];
 
@@ -124,7 +116,6 @@ fn run() -> Result<(), ExitCode> {
                     // run configuration
                     "interactive" => run_configuration.interactive = true,
                     "dry-run" => run_configuration.dry_run = true,
-                    "lists-as-expected" => run_configuration.lists_to_code_block = true,
                     // // command configuration
                     // "ignore-exit-code" => command_configuration.ignore_exit_code = true,
                     // "stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
@@ -162,7 +153,6 @@ fn run() -> Result<(), ExitCode> {
             let mut pattern = None;
             let mut debug = false;
             let mut as_json = false;
-            let mut lists_to_code_block = false;
             let mut case_splitter = None;
 
             // TODO filter
@@ -178,9 +168,6 @@ fn run() -> Result<(), ExitCode> {
                     }
                     "as-json" => {
                         as_json = true;
-                    }
-                    "lists-as-expected" => {
-                        lists_to_code_block = true;
                     }
                     "cases-with-splitter" => {
                         case_splitter = argument.value;
@@ -203,7 +190,7 @@ fn run() -> Result<(), ExitCode> {
 
             for path in paths {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let input = extract_tests(&content, lists_to_code_block);
+                let input = extract_tests(&content, Default::default());
                 if as_json {
                     for test in &input.tests {
                         if json_buf.len() > 1 {
