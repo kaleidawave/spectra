@@ -130,9 +130,15 @@ pub mod commands {
                 match out {
                     Ok(item) => match item {
                         ProcessNotification::Message(channel, message) => {
-                            // TODO channel
                             if end_message.is_some_and(|expected| expected == message) {
-                                break;
+                                // TEMP to read any stderr left over
+                                let last =
+                                    self.receiver.recv_timeout(time::Duration::from_millis(10));
+                                if let Ok(ProcessNotification::Message(channel, message)) = last {
+                                    messages.push((channel, message));
+                                }
+
+                                return (messages, Ok(ProcessStatus::Continuing));
                             }
                             messages.push((channel, message));
                         }
@@ -149,8 +155,6 @@ pub mod commands {
                     }
                 }
             }
-
-            (messages, Ok(ProcessStatus::Continuing))
         }
 
         pub fn end(mut self) -> io::Result<process::ExitStatus> {

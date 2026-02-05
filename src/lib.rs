@@ -95,6 +95,14 @@ impl TransformOutput {
             }
         }
     }
+
+    pub fn as_option(self) -> Option<Self> {
+        if let Self::None = self {
+            None
+        } else {
+            Some(self)
+        }
+    }
 }
 
 #[must_use]
@@ -112,9 +120,8 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
 
     let mut in_block = 0;
 
-    let mut lists_to_code_block = parent_options.lists_to_code_block;
-    let mut transform = parent_options.transform;
-    let mut merge_stderr = parent_options.merge_stderr;
+    let mut file_options = Options::default();
+    let mut test_options = Options::default();
 
     // TODO
     // let mut only_language: Option<String> = None;
@@ -134,8 +141,15 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
         if add_new {
             let mut test = std::mem::take(&mut current_test);
 
-            test.merge_stderr = merge_stderr;
-            test.transform = transform;
+            let test_options = std::mem::take(&mut test_options);
+
+            test.merge_stderr = parent_options.merge_stderr
+                || file_options.merge_stderr
+                || test_options.merge_stderr;
+            test.transform = parent_options
+                .transform
+                .as_option()
+                .unwrap_or(file_options.transform);
 
             // Skip the element
             if test.name.ends_with("(skip)") {
@@ -177,7 +191,7 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
                         }
                         [Slice("transform")] => {
                             // removes lines that end in some substring
-                            transform = match value {
+                            file_options.transform = match value {
                                 // TODO RootYAMLValue::Null => TransformOutput::None,
                                 RootYAMLValue::String(value) if value == "basic" => {
                                     TransformOutput::Basic
@@ -195,11 +209,11 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
                         [Slice("merge-stderr")] => {
                             // TODO
                             // removes lines that end in some substring
-                            merge_stderr = true;
+                            file_options.merge_stderr = true;
                         }
                         [Slice("lists-to-code-blocks")] => {
                             // TODO
-                            lists_to_code_block = true;
+                            file_options.lists_to_code_block = true;
                             // if let RootYAMLValue::Boolean(value) = value {
                             // } else {
                             //     eprintln!("expected boolean");
@@ -232,7 +246,9 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
                     is_with = content.0 == "With";
                 }
             }
-            MarkdownElement::List(list) if lists_to_code_block => {
+            MarkdownElement::List(list)
+                if parent_options.lists_to_code_block || file_options.lists_to_code_block =>
+            {
                 if !current_test.case.is_empty() && current_test.expected.is_none() {
                     let content = &list.0.0;
                     // TODO more efficient
@@ -256,7 +272,7 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
             }
             MarkdownElement::Quote(QuoteBlock { inner, .. }) => {
                 if inner.0.trim() == "> Merge `stderr` here" {
-                    merge_stderr = true;
+                    test_options.merge_stderr = true;
                 }
             }
             _ => {}
@@ -272,8 +288,15 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
             in_block += 1;
             current_test.name = format!("{name} ({in_block})", name = current_test.name);
         }
-        current_test.merge_stderr = merge_stderr;
-        current_test.transform = transform;
+        let test_options = std::mem::take(&mut test_options);
+
+        current_test.merge_stderr =
+            parent_options.merge_stderr || file_options.merge_stderr || test_options.merge_stderr;
+        current_test.transform = parent_options
+            .transform
+            .as_option()
+            .unwrap_or(file_options.transform);
+
         tests.push(current_test);
     }
 

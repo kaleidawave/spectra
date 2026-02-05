@@ -31,9 +31,9 @@ fn main() {
                     std::borrow::Cow::Borrowed(line)
                 };
                 if line.trim_end().ends_with("on stderr") {
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::thread::sleep(std::time::Duration::from_millis(10));
                     eprintln!("{output}");
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::thread::sleep(std::time::Duration::from_millis(10));
                 } else {
                     println!("{output}");
                 }
