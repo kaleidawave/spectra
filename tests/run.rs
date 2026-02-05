@@ -1,4 +1,4 @@
-use spectra::{RunConfiguration, extract_tests, run_tests, runners::program::Command};
+use spectra::{Options, RunConfiguration, extract_tests, run_tests, runners::program::Command};
 
 static SPECIFICATION_UPPERCASE: &str = include_str!("../examples/specification.uppercase.md");
 static SPECIFICATION_LIST: &str = include_str!("../examples/specification.lists.md");
@@ -14,7 +14,7 @@ fn no_output_run_configuration() -> RunConfiguration {
 
 #[test]
 fn pass() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
 
     let mut runner = Command::new("bun run examples/example_program.js {content} --uppercase");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
@@ -27,7 +27,7 @@ fn pass() {
 
 #[test]
 fn pass_stdout_stderr() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
 
     let mut runner =
         Command::new("bun run examples/example_stdin_stdout_program.js --uppercase --rpc");
@@ -41,7 +41,11 @@ fn pass_stdout_stderr() {
 
 #[test]
 fn pass_lists() {
-    let input = extract_tests(SPECIFICATION_LIST, true);
+    let options = Options {
+        lists_to_code_block: true,
+        ..Options::default()
+    };
+    let input = extract_tests(SPECIFICATION_LIST, options);
 
     let mut runner =
         Command::new("bun run examples/example_program.js {content} --uppercase --use-lists");
@@ -60,7 +64,7 @@ fn pass_lists() {
 
 #[test]
 fn program_crash() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
 
     let commands: &[&str] = &[
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-crash",
@@ -79,7 +83,7 @@ fn program_crash() {
 
 #[test]
 fn program_timeout() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
 
     let mut runner = Command::new(
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-timeout --timeout 1000",
@@ -105,11 +109,11 @@ fn program_timeout() {
 
 #[test]
 fn program_options() {
-    let input = extract_tests(SPECIFICATION_OPTIONS, false);
+    let input = extract_tests(SPECIFICATION_OPTIONS, Options::default());
 
     let commands: &[&str] = &[
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc",
-        "cargo run --example example_stdin_stdout_program -- --uppercase --rpc",
+        "cargo r --example example_stdin_stdout_program -- --uppercase --rpc",
     ];
 
     for mut runner in commands.iter().copied().map(Command::new) {

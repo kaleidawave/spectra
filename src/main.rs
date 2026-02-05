@@ -190,7 +190,7 @@ fn run() -> Result<(), ExitCode> {
 
             for path in paths {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let input = extract_tests(&content, Default::default());
+                let input = extract_tests(&content, spectra::Options::default());
                 if as_json {
                     for test in &input.tests {
                         if json_buf.len() > 1 {

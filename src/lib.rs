@@ -46,9 +46,9 @@ pub struct Input {
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct Options {
-    lists_to_code_block: bool,
-    transform: TransformOutput,
-    merge_stderr: bool,
+    pub lists_to_code_block: bool,
+    pub transform: TransformOutput,
+    pub merge_stderr: bool,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
@@ -56,18 +56,31 @@ pub enum TransformOutput {
     #[default]
     None,
     Basic,
+    Falsy,
 }
 
 impl TransformOutput {
+    #[must_use]
     pub fn transform(&self, on: String) -> String {
         match self {
             Self::None => on,
-            Self::Basic => {
+            Self::Basic | Self::Falsy => {
                 let mut buf = String::new();
                 for line in on.lines() {
                     let tline = line.strip_suffix(',').unwrap_or(line);
                     // WIP
-                    let skip = tline.ends_with("None") || tline.ends_with("\"\"");
+                    let skip = tline.ends_with("None")
+                        || tline.ends_with("\"\"")
+                        || tline.ends_with("[]")
+                        || tline.ends_with("()")
+                        || tline.ends_with("{}")
+                        || {
+                            if let Self::Falsy = self {
+                                tline.ends_with("false")
+                            } else {
+                                false
+                            }
+                        };
 
                     /* || tline.ends_with("]") || tline.ends_with("}") || tline.ends_with(")"); */
 
@@ -146,8 +159,8 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
         match element {
             MarkdownElement::Frontmatter(frontmatter) => {
                 let result = frontmatter.parse_yaml(|keys, value| {
+                    use simple_yaml_parser::RootYAMLValue;
                     use simple_yaml_parser::YAMLKey::Slice;
-                    // use simple_yaml_parser::RootYAMLValue;
 
                     match keys {
                         [Slice("expected_runner")] => {
@@ -163,15 +176,25 @@ pub fn extract_tests(content: &str, parent_options: Options) -> Input {
                             todo!();
                         }
                         [Slice("transform")] => {
-                            // TODO
                             // removes lines that end in some substring
-                            dbg!();
-                            transform = TransformOutput::Basic;
+                            transform = match value {
+                                // TODO RootYAMLValue::Null => TransformOutput::None,
+                                RootYAMLValue::String(value) if value == "basic" => {
+                                    TransformOutput::Basic
+                                }
+                                RootYAMLValue::String(value) if value == "falsy" => {
+                                    TransformOutput::Falsy
+                                }
+                                value => {
+                                    panic!(
+                                        "unknown {value:?}. expected 'null', 'basic' or 'falsy'"
+                                    );
+                                }
+                            };
                         }
                         [Slice("merge-stderr")] => {
                             // TODO
                             // removes lines that end in some substring
-                            dbg!();
                             merge_stderr = true;
                         }
                         [Slice("lists-to-code-blocks")] => {
@@ -330,7 +353,7 @@ pub fn run_tests(
                         match result {
                             Ok((output, _debug)) => {
                                 let output = test.transform.transform(output);
-                                eprintln!("Test {name}\nrecieved:\n{output}")
+                                eprintln!("Test {name}\nrecieved:\n{output}");
                             }
                             Err(output) => eprintln!("Test {name}\nerrored: {output}"),
                         }
@@ -349,7 +372,7 @@ pub fn run_tests(
                     match result {
                         Ok((output, _debug)) => {
                             let output = test.transform.transform(output);
-                            eprintln!("Test {name}\nrecieved:\n{output}")
+                            eprintln!("Test {name}\nrecieved:\n{output}");
                         }
                         Err(output) => eprintln!("Test {name}\nerrored: {output}"),
                     }
@@ -412,7 +435,7 @@ pub fn run_tests_under_glob(
 
     for path in paths {
         let content = std::fs::read_to_string(path).unwrap();
-        let input = extract_tests(&content, Default::default());
+        let input = extract_tests(&content, Options::default());
         let result = run_tests(&input.tests, &mut runner, configuration);
         results.append(result);
     }
@@ -441,7 +464,7 @@ pub fn run_tests_under_content(
     mut runner: impl Runner,
     configuration: &RunConfiguration,
 ) -> Result<(), usize> {
-    let input = extract_tests(content, Default::default());
+    let input = extract_tests(content, Options::default());
     let count = input.tests.len();
 
     println!("\nrunning {count} tests");
