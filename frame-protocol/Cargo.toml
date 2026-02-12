@@ -1,0 +1,17 @@
+[package]
+name = "frame-protocol"
+description = "A format for short to medium length messages."
+version = "0.0.1"
+repository = "https://github.com/kaleidawave/spectra"
+edition = "2024"
+authors = ["Ben <kaleidawave@gmail.com>"]
+license = "MIT"
+keywords = ["encoding", "message", "stdin-stdout", "iterator", "protocol"]
+categories = ["encoding", "network-programming", "text-processing"]
+
+metadata.version_sync = ["javascript/deno.json"]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
