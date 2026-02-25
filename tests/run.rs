@@ -1,8 +1,8 @@
 use spectra::{Options, RunConfiguration, extract_tests, run_tests, runners::program::Command};
 
-static SPECIFICATION_UPPERCASE: &str = include_str!("../examples/specification.uppercase.md");
-static SPECIFICATION_LIST: &str = include_str!("../examples/specification.lists.md");
-static SPECIFICATION_OPTIONS: &str = include_str!("../examples/specification.options.md");
+static SPECIFICATION_UPPERCASE: &str = include_str!("../include/specification.uppercase.md");
+static SPECIFICATION_LIST: &str = include_str!("../include/specification.lists.md");
+static SPECIFICATION_OPTIONS: &str = include_str!("../include/specification.options.md");
 
 /// test output during testing can get confusing
 fn no_output_run_configuration() -> RunConfiguration {

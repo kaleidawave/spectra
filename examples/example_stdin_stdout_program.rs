@@ -21,21 +21,23 @@ fn main() {
 
         if line == "end" {
             let output = String::from_utf8_lossy(&buf);
-            for line in output.lines() {
-                if intentional_crash && line.trim_end().ends_with("2") {
-                    panic!("CRASH!!!");
-                }
-                let output = if is_uppercase {
-                    std::borrow::Cow::Owned(line.to_uppercase())
-                } else {
-                    std::borrow::Cow::Borrowed(line)
-                };
-                if line.trim_end().ends_with("on stderr") {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                    eprintln!("{output}");
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                } else {
-                    println!("{output}");
+            {
+                for line in output.lines() {
+                    if intentional_crash && line.trim_end().ends_with("2") {
+                        panic!("CRASH!!!");
+                    }
+                    let output = if is_uppercase {
+                        std::borrow::Cow::Owned(line.to_uppercase())
+                    } else {
+                        std::borrow::Cow::Borrowed(line)
+                    };
+                    if line.trim_end().ends_with("on stderr") {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        eprintln!("{output}");
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    } else {
+                        println!("{output}");
+                    }
                 }
             }
             println!("end");
