@@ -27,6 +27,13 @@ glob = "0.3.3"
 pedantic = "warn"
 
 [package.metadata.commands]
-example = "cargo run -- test ./examples/specification.uppercase.md 'cargo run -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc'"
-example-intentional-crash = "cargo run -- test ./examples/specification.uppercase.md 'cargo run -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc --intentional-crash'"
-example-rust = "cargo run -- test ./examples/specification.uppercase.md 'rust:examples/rust-runner::get_result'"
+example = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc'"
+
+example-options = "cargo r -- test ./include/specification.options.md 'cargo r -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc'"
+example-intentional-crash = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc --intentional-crash'"
+example-rust = "cargo r -- test ./include/specification.uppercase.md 'rust:include/rust-runner::get_result'"
+
+example-infill = "cargo r -- test ./include/specification-infill.md 'cargo r -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc' --infill"
+example-dry-run = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_stdin_stdout_program -- --uppercase --interactive --rpc' --dry-run"
+
+example-list = "cargo r -- list ./include/specification.uppercase.md --json"

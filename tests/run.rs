@@ -14,7 +14,7 @@ fn no_output_run_configuration() -> RunConfiguration {
 
 #[test]
 fn pass() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let mut runner = Command::new("bun run examples/example_program.js {content} --uppercase");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
@@ -27,7 +27,7 @@ fn pass() {
 
 #[test]
 fn pass_stdout_stderr() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let mut runner =
         Command::new("bun run examples/example_stdin_stdout_program.js --uppercase --rpc");
@@ -45,7 +45,7 @@ fn pass_lists() {
         lists_to_code_block: true,
         ..Options::default()
     };
-    let input = extract_tests(SPECIFICATION_LIST, options);
+    let input = extract_tests(SPECIFICATION_LIST, &options);
 
     let mut runner =
         Command::new("bun run examples/example_program.js {content} --uppercase --use-lists");
@@ -64,7 +64,7 @@ fn pass_lists() {
 
 #[test]
 fn program_crash() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let commands: &[&str] = &[
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-crash",
@@ -83,7 +83,7 @@ fn program_crash() {
 
 #[test]
 fn program_timeout() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, Options::default());
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let mut runner = Command::new(
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-timeout --timeout 1000",
@@ -109,7 +109,7 @@ fn program_timeout() {
 
 #[test]
 fn program_options() {
-    let input = extract_tests(SPECIFICATION_OPTIONS, Options::default());
+    let input = extract_tests(SPECIFICATION_OPTIONS, &Options::default());
 
     let commands: &[&str] = &[
         "bun run examples/example_stdin_stdout_program.js --uppercase --rpc",

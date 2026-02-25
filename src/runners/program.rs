@@ -126,7 +126,7 @@ impl Runner for Command {
 
             writeln!(running.stdin, "end").expect("could not write (early crash)");
 
-            let timeout = self.timeout.unwrap_or(time::Duration::MAX);
+            let timeout = self.timeout.unwrap_or(time::Duration::from_secs(5));
             let (messages, res) = running.process.read_timeout(timeout, Some("end"));
 
             // TODO?
@@ -222,7 +222,7 @@ impl Runner for Command {
 
             match res {
                 Ok(_) => {
-                    if test.expected.is_none() && !messages.is_empty() {
+                    if test.expected.is_empty() && !messages.is_empty() {
                         eprintln!(
                             "Possibly unexpected stdout output {messages:?} from {name}",
                             name = test.name

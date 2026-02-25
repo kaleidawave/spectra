@@ -27,7 +27,11 @@ static TEST_NAMED_PARAMETERS: &[NamedParameter] = &[
         "interactive",
         "use stdin <-> stdout communication rather that spawning for each test",
     ),
-    NamedParameter::boolean("dry-run", "?"),
+    NamedParameter::boolean(
+        "dry-run",
+        "run and print output of test cases without comparison",
+    ),
+    NamedParameter::boolean("infill", "replace ??? expected blocks with command output"),
 ];
 
 static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::single(
@@ -37,7 +41,7 @@ static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::si
 
 static LIST_PARAMETERS: &[NamedParameter] = &[
     NamedParameter::boolean("debug", "print more information"),
-    NamedParameter::boolean("as-json", "print output as JSON"),
+    NamedParameter::boolean("json", "print output as JSON"),
     NamedParameter::value("cases-with-splitter", "print cases with passed splitter"),
 ];
 
@@ -116,6 +120,7 @@ fn run() -> Result<(), ExitCode> {
                     // run configuration
                     "interactive" => run_configuration.interactive = true,
                     "dry-run" => run_configuration.dry_run = true,
+                    "infill" => run_configuration.infill = true,
                     // // command configuration
                     // "ignore-exit-code" => command_configuration.ignore_exit_code = true,
                     // "stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
@@ -166,7 +171,7 @@ fn run() -> Result<(), ExitCode> {
                     "debug" => {
                         debug = true;
                     }
-                    "as-json" => {
+                    "json" => {
                         as_json = true;
                     }
                     "cases-with-splitter" => {
@@ -190,16 +195,22 @@ fn run() -> Result<(), ExitCode> {
 
             for path in paths {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let input = extract_tests(&content, spectra::Options::default());
+                let input = extract_tests(&content, &spectra::Options::default());
                 if as_json {
                     for test in &input.tests {
                         if json_buf.len() > 1 {
                             json_buf.push(',');
                         }
                         // FUTURE json_builder_macro should support `Option`
-                        let expected = test.expected.as_deref().unwrap_or_default();
+                        // let transform = test.transform.as_option().map(|transform| format!("{:?}", test.transform));
+                        let transform = format!("{:?}", test.transform);
                         json_buf.push_str(&json_builder_macro::json! {
-                            name: test.name, case: test.case, expected: expected
+                            name: test.name,
+                            case: test.case,
+                            expected: test.expected.0,
+                            transform: transform,
+                            wildcard_lines: test.wildcard_lines,
+                            merge_stderr: test.merge_stderr,
                         });
                     }
                 } else {
@@ -215,7 +226,7 @@ fn run() -> Result<(), ExitCode> {
                             }
                             println!("{case}", case = test.case);
                         } else {
-                            println!("{name}", name = test.name);
+                            println!("{name}", name = spectra::colour_test_name(&test.name));
                         }
                         count += 1;
                     }

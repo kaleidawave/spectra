@@ -1,15 +1,35 @@
 use std::borrow::Cow;
 
+pub type SliceRange = std::ops::Range<usize>;
+
 #[must_use]
-pub fn is_equal_ignore_new_line_sequence(lhs: &str, rhs: &str) -> bool {
+#[allow(clippy::collapsible_if)]
+pub fn is_equal_ignore_new_line_sequence(
+    expected: &str,
+    recieved: &str,
+    wildcard_lines: bool,
+) -> bool {
     // We should not care about trailing new lines here...
-    let mut lhs = lhs.lines();
-    let mut rhs = rhs.lines();
+    let mut expected = expected.lines();
+    let mut recieved = recieved.lines();
     loop {
-        match (lhs.next(), rhs.next()) {
-            (Some(lhs), Some(rhs)) => {
-                if lhs != rhs {
-                    return false;
+        match (expected.next(), recieved.next()) {
+            (Some(expected), Some(recieved)) => {
+                if wildcard_lines {
+                    let expected = expected.trim();
+                    if let Some(before) = expected.strip_suffix('?') {
+                        if !recieved.starts_with(before) {
+                            return false;
+                        }
+                    } else if let Some(after) = expected.strip_prefix('?') {
+                        if !recieved.ends_with(after) {
+                            return false;
+                        }
+                    }
+                } else {
+                    if expected != recieved {
+                        return false;
+                    }
                 }
             }
             (Some(_), _) | (_, Some(_)) => {
@@ -132,8 +152,8 @@ pub mod commands {
                         ProcessNotification::Message(channel, message) => {
                             if end_message.is_some_and(|expected| expected == message) {
                                 // TEMP to read any stderr left over
-                                let last =
-                                    self.receiver.recv_timeout(time::Duration::from_millis(10));
+                                let timeout = time::Duration::from_millis(10);
+                                let last = self.receiver.recv_timeout(timeout);
                                 if let Ok(ProcessNotification::Message(channel, message)) = last {
                                     messages.push((channel, message));
                                 }
@@ -277,5 +297,21 @@ mod tests {
             ArgumentIter::new(on).collect::<Vec<_>>(),
             vec!["testing", "escaping '", "with \" quote"]
         );
+    }
+}
+
+pub(crate) mod changes {
+    pub(crate) type Changes = Vec<(super::SliceRange, String)>;
+
+    pub(crate) fn apply_changes<W: std::io::Write>(to: &mut W, on: &str, changes: Changes) {
+        let mut cur = 0;
+        for (range, item) in changes {
+            let (lhs, rhs) = (range.start, range.end);
+            debug_assert!(cur <= lhs, "cur > lhs");
+            write!(to, "{item}", item = &on[cur..lhs]).unwrap();
+            write!(to, "{item}").unwrap();
+            cur = rhs;
+        }
+        write!(to, "{item}", item = &on[cur..]).unwrap();
     }
 }
