@@ -1,4 +1,6 @@
-use spectra::{RunConfiguration, extract_tests, run_tests_under_glob, runners, utilities::filter};
+use spectra::{
+    RunConfiguration, parsing::extract_tests, run_tests_under_glob, runners, utilities::filter,
+};
 
 use lahl::{
     CLI, Endpoint, NamedParameter, PositionalParameter, argument_result_or_out,
@@ -226,7 +228,10 @@ fn run() -> Result<(), ExitCode> {
                             }
                             println!("{case}", case = test.case);
                         } else {
-                            println!("{name}", name = spectra::colour_test_name(&test.name));
+                            println!(
+                                "{name}",
+                                name = spectra::utilities::colour_test_name(&test.name)
+                            );
                         }
                         count += 1;
                     }

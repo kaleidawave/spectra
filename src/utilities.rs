@@ -42,6 +42,61 @@ pub fn is_equal_ignore_new_line_sequence(
     }
 }
 
+#[must_use]
+pub fn colour_test_name(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.contains(['*', '`']) {
+        use colored::{Color, ColoredString, Styles};
+        use simple_markdown_parser::{MarkdownPart, PartsIterator, TextDecoration};
+
+        let mut buf = String::new();
+        for part in PartsIterator::new(name) {
+            let mut decorated: ColoredString = part.on.into();
+            if let MarkdownPart::InlineCode = part.kind {
+                decorated.fgcolor = Some(Color::Black);
+                decorated.bgcolor = Some(Color::BrightBlack);
+            }
+            if part.decoration.contains(TextDecoration::EMPHASIS) {
+                decorated.style.add(Styles::Italic);
+            }
+            if part.decoration.contains(TextDecoration::BOLD) {
+                decorated.style.add(Styles::Bold);
+            }
+
+            std::fmt::Write::write_fmt(&mut buf, format_args!("{decorated}")).unwrap();
+        }
+        buf.into()
+    } else {
+        name.into()
+    }
+}
+
+#[derive(Debug)]
+pub struct TextWithSource(pub String, pub SliceRange);
+
+impl Default for TextWithSource {
+    fn default() -> Self {
+        Self(String::new(), 0..0)
+    }
+}
+
+impl TextWithSource {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl PartialEq<str> for TextWithSource {
+    fn eq(&self, other: &str) -> bool {
+        &self.0 == other
+    }
+}
+
 pub mod filter {
     pub trait Filter {
         fn should_skip(&self, s: &str) -> bool;

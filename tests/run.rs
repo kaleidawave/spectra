@@ -1,4 +1,6 @@
-use spectra::{Options, RunConfiguration, extract_tests, run_tests, runners::program::Command};
+use spectra::{
+    Options, RunConfiguration, parsing::extract_tests, run_tests, runners::program::Command,
+};
 
 static SPECIFICATION_UPPERCASE: &str = include_str!("../include/specification.uppercase.md");
 static SPECIFICATION_LIST: &str = include_str!("../include/specification.lists.md");
@@ -42,7 +44,7 @@ fn pass_stdout_stderr() {
 #[test]
 fn pass_lists() {
     let options = Options {
-        lists_to_code_block: true,
+        lists_as_code_blocks: true,
         ..Options::default()
     };
     let input = extract_tests(SPECIFICATION_LIST, &options);

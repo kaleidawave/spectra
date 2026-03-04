@@ -1,3 +1,7 @@
+---
+lists-as-code-blocks: true
+---
+
 ### Test 1
 
 ```txt
