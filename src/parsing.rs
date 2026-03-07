@@ -1,8 +1,16 @@
 use super::utilities::TextWithSource;
 use super::{Input, Options, Test, options::TransformOutput};
 use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
-use simple_yaml_parser::RootYAMLValue;
-use simple_yaml_parser::YAMLKey;
+use simple_yaml_parser::{RootYAMLValue, YAMLKey, parse as parse_yaml};
+
+pub(crate) fn parse_yaml_config(content: &str) -> Options {
+    let mut options = Options::default();
+    parse_yaml(&content, |keys, value| {
+        parse_yaml_keys(keys, value, &mut options);
+    })
+    .expect("invalid file");
+    options
+}
 
 fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: &mut Options) {
     use YAMLKey::Slice;
@@ -176,7 +184,6 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                     parent_options.lists_as_code_blocks || file_options.lists_as_code_blocks;
                 let should_add =
                     lists_as_code_blocks && (!test_case.is_empty() && test_expected.is_empty());
-                dbg!(&should_add, &list.0.0);
                 if should_add {
                     let inner = &list.0.0;
                     let start = inner.as_ptr() as usize - content.as_ptr() as usize;
@@ -187,20 +194,15 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                 }
             }
             MarkdownElement::CodeBlock(CodeBlock { raw_code, .. }) => {
-                if test_name.is_empty() {
-                    dbg!("unnamed test {raw_code:?}");
-                    return Ok(());
-                }
-
-                // if last_was_with {
-                //     raw_code.clone_into(&mut current_test.options);
-                // } else
-                if test_case.is_empty() {
-                    raw_code.clone_into(&mut test_case);
-                } else if test_expected.is_empty() {
-                    let inner = raw_code;
-                    let start = inner.as_ptr() as usize - content.as_ptr() as usize;
-                    test_expected = TextWithSource(inner.to_owned(), start..(start + inner.len()));
+                if !test_name.is_empty() {
+                    if test_case.is_empty() {
+                        raw_code.clone_into(&mut test_case);
+                    } else if test_expected.is_empty() {
+                        let inner = raw_code;
+                        let start = inner.as_ptr() as usize - content.as_ptr() as usize;
+                        test_expected =
+                            TextWithSource(inner.to_owned(), start..(start + inner.len()));
+                    }
                 }
             }
             MarkdownElement::Quote(QuoteBlock { inner, .. }) => {

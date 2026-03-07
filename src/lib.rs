@@ -195,6 +195,7 @@ pub fn run_tests_under_glob(
     pattern: &str,
     mut runner: impl Runner,
     configuration: &RunConfiguration,
+    config_file: Option<String>,
 ) -> Result<(), usize> {
     let now = std::time::Instant::now();
     let mut results = TestResults::default();
@@ -204,9 +205,16 @@ pub fn run_tests_under_glob(
         .filter_map(Result::ok)
         .filter(|path| path.is_file());
 
+    let test_options = if let Some(config_file) = config_file {
+        let file = std::fs::read_to_string(config_file).unwrap();
+        parsing::parse_yaml_config(&file)
+    } else {
+        Options::default()
+    };
+
     for path in paths {
         let content = std::fs::read_to_string(&path).unwrap();
-        let input = parsing::extract_tests(&content, &Options::default());
+        let input = parsing::extract_tests(&content, &test_options);
         let mut result = run_tests(&input.tests, &mut runner, configuration);
         if !result.changes.is_empty() {
             utilities::changes::apply_changes(

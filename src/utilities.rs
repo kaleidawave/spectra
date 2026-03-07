@@ -93,7 +93,7 @@ impl TextWithSource {
 
 impl PartialEq<str> for TextWithSource {
     fn eq(&self, other: &str) -> bool {
-        &self.0 == other
+        self.0 == other
     }
 }
 

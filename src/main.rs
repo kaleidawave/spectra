@@ -34,6 +34,7 @@ static TEST_NAMED_PARAMETERS: &[NamedParameter] = &[
         "run and print output of test cases without comparison",
     ),
     NamedParameter::boolean("infill", "replace ??? expected blocks with command output"),
+    NamedParameter::value("config", "YAML file with configuration for tests"),
 ];
 
 static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::single(
@@ -98,6 +99,7 @@ fn run() -> Result<(), ExitCode> {
         "test" | "compare" => {
             let mut pattern = None;
             let mut command = None;
+            let mut config_file = None;
             let mut run_configuration = RunConfiguration::default();
 
             for argument in arguments {
@@ -108,6 +110,9 @@ fn run() -> Result<(), ExitCode> {
                     }
                     "command" => {
                         command = argument.value;
+                    }
+                    "config" => {
+                        config_file = argument.value;
                     }
                     // skip and including options
                     name @ ("only" | "skip" | "only-cs" | "skip-cs") => {
@@ -137,7 +142,12 @@ fn run() -> Result<(), ExitCode> {
                 // command'S'
                 let command_pattern = runners::program::Commands::new(&command_pattern);
 
-                let result = run_tests_under_glob(&pattern, command_pattern, &run_configuration);
+                let result = run_tests_under_glob(
+                    &pattern,
+                    command_pattern,
+                    &run_configuration,
+                    config_file,
+                );
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
                 }
@@ -146,10 +156,10 @@ fn run() -> Result<(), ExitCode> {
                 let result = if let Some(after) = command.strip_prefix("rust:") {
                     let (path, name) = after.split_once("::").unwrap_or((after, "test"));
                     let runner = runners::compiled::rust::Rust::new(path, name).unwrap();
-                    run_tests_under_glob(&pattern, runner, &run_configuration)
+                    run_tests_under_glob(&pattern, runner, &run_configuration, config_file)
                 } else {
                     let command = runners::program::Command::new(&command);
-                    run_tests_under_glob(&pattern, command, &run_configuration)
+                    run_tests_under_glob(&pattern, command, &run_configuration, config_file)
                 };
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
