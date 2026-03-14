@@ -23,6 +23,9 @@ pub struct Command {
     currently_running: Option<Running>,
 }
 
+const DEFAULT_STARTUP_TIMEOUT: time::Duration = time::Duration::from_secs(10);
+const DEFAULT_READ_TIMEOUT: time::Duration = time::Duration::from_secs(3);
+
 impl Command {
     /// # Panics
     ///
@@ -98,8 +101,7 @@ impl Command {
             panic!("exited with: {status}");
         }
 
-        // TODO duration temp
-        let (prelude, result) = process.read_timeout(time::Duration::from_secs(10), Some("start"));
+        let (prelude, result) = process.read_timeout(DEFAULT_STARTUP_TIMEOUT, Some("start"));
 
         // Any prelude messages
         for (channel, line) in prelude {
@@ -126,7 +128,7 @@ impl Runner for Command {
 
             writeln!(running.stdin, "end").expect("could not write (early crash)");
 
-            let timeout = self.timeout.unwrap_or(time::Duration::MAX);
+            let timeout = self.timeout.unwrap_or(DEFAULT_READ_TIMEOUT);
             let (messages, res) = running.process.read_timeout(timeout, Some("end"));
 
             // TODO?
@@ -212,7 +214,7 @@ impl Runner for Command {
             command.args(arguments);
 
             let command = commands::Process::spawn(command).unwrap();
-            let timeout = self.timeout.unwrap_or(time::Duration::MAX);
+            let timeout = self.timeout.unwrap_or(DEFAULT_READ_TIMEOUT);
             let (messages, res) = command.read_timeout(timeout, None);
 
             // TODO WIP
@@ -222,7 +224,7 @@ impl Runner for Command {
 
             match res {
                 Ok(_) => {
-                    if test.expected.is_none() && !messages.is_empty() {
+                    if test.expected.is_empty() && !messages.is_empty() {
                         eprintln!(
                             "Possibly unexpected stdout output {messages:?} from {name}",
                             name = test.name
@@ -260,8 +262,7 @@ impl Runner for Command {
             // Send the close signal
             writeln!(stdin, "close").unwrap();
 
-            // TODO other fields here
-            let timeout = self.timeout.unwrap_or(time::Duration::MAX);
+            let timeout = self.timeout.unwrap_or(DEFAULT_READ_TIMEOUT);
             let (rest, _) = process.read_timeout(timeout, None);
             for (channel, line) in rest {
                 println!("left over: {line} ({channel:?})");

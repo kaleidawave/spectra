@@ -5,8 +5,9 @@ example 1
 here
 ```
 
-- EXAMPLE 1
-- HERE
+```txt
+???
+```
 
 ### Test 2
 
@@ -14,7 +15,9 @@ here
 example 2
 ```
 
-- EXAMPLE 2
+```txt
+???
+```
 
 ### other
 
@@ -23,4 +26,6 @@ example 3
 
 ```
 
-- EXAMPLE 3
+```txt
+???
+```

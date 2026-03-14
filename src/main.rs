@@ -1,4 +1,6 @@
-use spectra::{RunConfiguration, extract_tests, run_tests_under_glob, runners, utilities::filter};
+use spectra::{
+    RunConfiguration, parsing::extract_tests, run_tests_under_glob, runners, utilities::filter,
+};
 
 use lahl::{
     CLI, Endpoint, NamedParameter, PositionalParameter, argument_result_or_out,
@@ -27,11 +29,12 @@ static TEST_NAMED_PARAMETERS: &[NamedParameter] = &[
         "interactive",
         "use stdin <-> stdout communication rather that spawning for each test",
     ),
-    NamedParameter::boolean("dry-run", "?"),
     NamedParameter::boolean(
-        "lists-as-expected",
-        "use list blocks as the expected output",
+        "dry-run",
+        "run and print output of test cases without comparison",
     ),
+    NamedParameter::boolean("infill", "replace ??? expected blocks with command output"),
+    NamedParameter::value("config", "YAML file with configuration for tests"),
 ];
 
 static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::single(
@@ -41,11 +44,7 @@ static LIST_NAMED_PARAMETERS: &[PositionalParameter] = &[PositionalParameter::si
 
 static LIST_PARAMETERS: &[NamedParameter] = &[
     NamedParameter::boolean("debug", "print more information"),
-    NamedParameter::boolean("as-json", "print output as JSON"),
-    NamedParameter::boolean(
-        "lists-as-expected",
-        "use list blocks as the expected output",
-    ),
+    NamedParameter::boolean("json", "print output as JSON"),
     NamedParameter::value("cases-with-splitter", "print cases with passed splitter"),
 ];
 
@@ -100,6 +99,7 @@ fn run() -> Result<(), ExitCode> {
         "test" | "compare" => {
             let mut pattern = None;
             let mut command = None;
+            let mut config_file = None;
             let mut run_configuration = RunConfiguration::default();
 
             for argument in arguments {
@@ -110,6 +110,9 @@ fn run() -> Result<(), ExitCode> {
                     }
                     "command" => {
                         command = argument.value;
+                    }
+                    "config" => {
+                        config_file = argument.value;
                     }
                     // skip and including options
                     name @ ("only" | "skip" | "only-cs" | "skip-cs") => {
@@ -124,7 +127,7 @@ fn run() -> Result<(), ExitCode> {
                     // run configuration
                     "interactive" => run_configuration.interactive = true,
                     "dry-run" => run_configuration.dry_run = true,
-                    "lists-as-expected" => run_configuration.lists_to_code_block = true,
+                    "infill" => run_configuration.infill = true,
                     // // command configuration
                     // "ignore-exit-code" => command_configuration.ignore_exit_code = true,
                     // "stdin-stdout-communication" => command_configuration.stdin_stdout_communication = true,
@@ -139,7 +142,12 @@ fn run() -> Result<(), ExitCode> {
                 // command'S'
                 let command_pattern = runners::program::Commands::new(&command_pattern);
 
-                let result = run_tests_under_glob(&pattern, command_pattern, &run_configuration);
+                let result = run_tests_under_glob(
+                    &pattern,
+                    command_pattern,
+                    &run_configuration,
+                    config_file,
+                );
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
                 }
@@ -148,10 +156,10 @@ fn run() -> Result<(), ExitCode> {
                 let result = if let Some(after) = command.strip_prefix("rust:") {
                     let (path, name) = after.split_once("::").unwrap_or((after, "test"));
                     let runner = runners::compiled::rust::Rust::new(path, name).unwrap();
-                    run_tests_under_glob(&pattern, runner, &run_configuration)
+                    run_tests_under_glob(&pattern, runner, &run_configuration, config_file)
                 } else {
                     let command = runners::program::Command::new(&command);
-                    run_tests_under_glob(&pattern, command, &run_configuration)
+                    run_tests_under_glob(&pattern, command, &run_configuration, config_file)
                 };
                 if result.is_err() {
                     return Err(ExitCode::FAILURE);
@@ -162,7 +170,6 @@ fn run() -> Result<(), ExitCode> {
             let mut pattern = None;
             let mut debug = false;
             let mut as_json = false;
-            let mut lists_to_code_block = false;
             let mut case_splitter = None;
 
             // TODO filter
@@ -176,11 +183,8 @@ fn run() -> Result<(), ExitCode> {
                     "debug" => {
                         debug = true;
                     }
-                    "as-json" => {
+                    "json" => {
                         as_json = true;
-                    }
-                    "lists-as-expected" => {
-                        lists_to_code_block = true;
                     }
                     "cases-with-splitter" => {
                         case_splitter = argument.value;
@@ -203,16 +207,23 @@ fn run() -> Result<(), ExitCode> {
 
             for path in paths {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let input = extract_tests(&content, lists_to_code_block);
+                let input = extract_tests(&content, &spectra::Options::default());
                 if as_json {
                     for test in &input.tests {
                         if json_buf.len() > 1 {
                             json_buf.push(',');
                         }
                         // FUTURE json_builder_macro should support `Option`
-                        let expected = test.expected.as_deref().unwrap_or_default();
+                        // let transform = test.transform.as_option().map(|transform| format!("{:?}", test.transform));
+                        let transform = format!("{:?}", test.transform);
                         json_buf.push_str(&json_builder_macro::json! {
-                            name: test.name, case: test.case, expected: expected
+                            name: test.name,
+                            case: test.case,
+                            expected: test.expected.0,
+                            transform: transform,
+                            wildcard_lines: test.wildcard_lines,
+                            merge_stderr: test.merge_stderr,
+                            skip: test.skip,
                         });
                     }
                 } else {
@@ -228,7 +239,10 @@ fn run() -> Result<(), ExitCode> {
                             }
                             println!("{case}", case = test.case);
                         } else {
-                            println!("{name}", name = test.name);
+                            println!(
+                                "{name}",
+                                name = spectra::utilities::colour_test_name(&test.name)
+                            );
                         }
                         count += 1;
                     }

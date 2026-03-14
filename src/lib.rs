@@ -1,21 +1,33 @@
+pub mod parsing;
 pub mod runners;
 pub mod utilities;
 
 use utilities::{filter, is_equal_ignore_new_line_sequence, run_in_alternative_display};
 
 use colored::Colorize as Colourise;
+
 use std::io;
 
-/// TODO vec of vecs
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Test {
+    /// a grouping for the test
     pub section: String,
+    /// the exact name
     pub name: String,
-    pub options: String,
+    /// options / arguments passed to the type
+    pub arguments: String,
+    /// the actual case
     pub case: String,
-    pub expected: Option<String>,
-    pub command: bool,
+    /// the expected output
+    pub expected: utilities::TextWithSource,
+    /// has (skip) in title. We add it to the list of tests to make user aware
+    pub skip: bool,
+    /// whether to merge stderr stream into the expected test out
     pub merge_stderr: bool,
+    /// whether to allow `?` in expected to match anything
+    pub wildcard_lines: bool,
+    /// a function to run the output through before equating with expected
+    pub transform: options::TransformOutput,
 }
 
 pub trait Runner: Sized {
@@ -33,7 +45,7 @@ pub trait Runner: Sized {
 pub struct RunConfiguration {
     pub interactive: bool,
     pub dry_run: bool,
-    pub lists_to_code_block: bool,
+    pub infill: bool,
     pub no_colors: bool,
     pub filter: Option<Box<dyn filter::Filter>>,
     pub skip_print_test_results: bool,
@@ -44,158 +56,22 @@ pub struct Input {
     pub expected_runner: Option<String>,
 }
 
-#[must_use]
-pub fn extract_tests(content: &str, lists_to_code_block: bool) -> Input {
-    use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
-
-    fn add_one(on: &str) -> String {
-        let on = on.trim_end();
-        if let Some((before, after)) = on.rsplit_once('(')
-            && let Some(maybe_number) = after.strip_suffix(')')
-            && let Ok(value) = <usize as std::str::FromStr>::from_str(maybe_number)
-        {
-            let before = before.trim_end();
-            let next = value + 1;
-            format!("{before} ({next})")
-        } else {
-            let initial = 1;
-            format!("{on} ({initial})")
-        }
-    }
-
-    let mut tests: Vec<Test> = Vec::new();
-    let mut current_test = Test::default();
-    let mut section = String::new();
-
-    let mut expected_runner = None;
-    // let mut total_options = String::new();
-
-    let mut last_was_with = false;
-
-    let result = parse::<()>(content, |element| {
-        let mut is_with = false;
-
-        let add_new = if let MarkdownElement::Heading { level, .. } = element {
-            level >= 3
-        } else if let MarkdownElement::CodeBlock(_) = element {
-            current_test.expected.is_some()
-        } else {
-            false
-        };
-
-        if add_new && !current_test.case.is_empty() {
-            let mut test = std::mem::take(&mut current_test);
-            if test.name.ends_with("(skip)") {
-                return Ok(());
-            }
-            if let MarkdownElement::CodeBlock(_) = element {
-                test.name = add_one(&test.name);
-                // TODO could this be better?
-                current_test.name = add_one(&test.name);
-            }
-
-            tests.push(test);
-        }
-
-        match element {
-            MarkdownElement::Heading { level, content } => {
-                // TODO
-                if level >= 3 {
-                    current_test.name = content.0.to_owned(); //.no_decoration();
-                    section.clone_into(&mut current_test.section);
-                } else {
-                    section = content.0.to_owned(); // .no_decoration();
-                }
-            }
-            MarkdownElement::Paragraph(content) => {
-                if let Some(left) = content.0.strip_prefix("With `")
-                    && let Some(options) = left.strip_suffix('`')
-                {
-                    options.clone_into(&mut current_test.options);
-                } else {
-                    is_with = content.0 == "With";
-                }
-            }
-            MarkdownElement::List(list) if lists_to_code_block => {
-                if !current_test.case.is_empty() && current_test.expected.is_none() {
-                    let content = &list.0.0;
-                    // TODO more efficient
-                    let content = content.replace("\\<", "<").replace("\\\"", "\"");
-                    let _ = current_test.expected.insert(content);
-                }
-            }
-            MarkdownElement::CodeBlock(CodeBlock { raw_code, .. }) => {
-                if current_test.name.is_empty() {
-                    return Ok(());
-                }
-
-                if last_was_with {
-                    raw_code.clone_into(&mut current_test.options);
-                } else if current_test.case.is_empty() {
-                    raw_code.clone_into(&mut current_test.case);
-                } else if current_test.expected.is_none() {
-                    let _ = current_test.expected.insert(raw_code.to_owned());
-                }
-            }
-            MarkdownElement::Quote(QuoteBlock { inner, .. }) => {
-                if inner.0.trim() == "> Merge `stderr` here" {
-                    current_test.merge_stderr = true;
-                }
-            }
-            MarkdownElement::Frontmatter(frontmatter) => {
-                let result = frontmatter.parse_yaml(|keys, value| {
-                    use simple_yaml_parser::YAMLKey::Slice;
-
-                    match keys {
-                        [Slice("expected_runner")] => {
-                            if let simple_yaml_parser::RootYAMLValue::String(value) = value {
-                                // TODO this will be different in future right?
-                                expected_runner = Some(value.to_owned());
-                            } else {
-                                panic!("expected runner to be string")
-                            }
-                        }
-                        [Slice("include-language-as-option")] => {
-                            // prepends *language*\n---\n
-                            todo!();
-                        }
-                        [Slice("strip-fron-output")] => {
-                            // removes lines that end in some substring
-                            todo!();
-                        }
-                        keys => {
-                            eprintln!("unknown {keys:?} {value:?}");
-                        }
-                    }
-                });
-                if let Err(err) = result {
-                    eprintln!("{err:?}");
-                }
-            }
-            _ => {}
-        }
-
-        last_was_with = is_with;
-        Ok(())
-    });
-
-    assert!(result.is_ok(), "{result:?}");
-    if !(current_test.case.is_empty() || current_test.name.ends_with("(skip)")) {
-        tests.push(current_test);
-    }
-
-    Input {
-        tests,
-        expected_runner,
-    }
+#[derive(Debug, Default, Clone)]
+pub struct Options {
+    pub lists_as_code_blocks: bool,
+    pub transform: options::TransformOutput,
+    pub merge_stderr: bool,
+    pub wildcard_lines: bool,
 }
 
 #[derive(Debug, Default)]
 pub struct TestResults {
     pub count: usize,
     pub skipped: usize,
-    // name, comparison, stderr
+    /// name, comparison, stderr
     pub failures: Vec<(String, String, String)>,
+    /// for infill
+    pub changes: utilities::changes::Changes,
 }
 
 impl TestResults {
@@ -215,41 +91,18 @@ pub fn run_tests(
 
     for test in tests {
         results.count += 1;
-        let name = &test.name;
 
-        let skip_test = configuration
-            .filter
-            .as_ref()
-            .is_some_and(|filter| filter.should_skip(&test.name));
+        let skip_test = test.skip
+            || configuration
+                .filter
+                .as_ref()
+                .is_some_and(|filter| filter.should_skip(&test.name));
 
         if skip_test {
             results.skipped += 1;
         }
 
-        let name: std::borrow::Cow<'_, str> = if name.contains(['*', '`']) {
-            use colored::{Color, ColoredString, Styles};
-            use simple_markdown_parser::{MarkdownPart, PartsIterator, TextDecoration};
-
-            let mut buf = String::new();
-            for part in PartsIterator::new(name) {
-                let mut decorated: ColoredString = part.on.into();
-                if let MarkdownPart::InlineCode = part.kind {
-                    decorated.fgcolor = Some(Color::Black);
-                    decorated.bgcolor = Some(Color::BrightBlack);
-                }
-                if part.decoration.contains(TextDecoration::EMPHASIS) {
-                    decorated.style.add(Styles::Italic);
-                }
-                if part.decoration.contains(TextDecoration::BOLD) {
-                    decorated.style.add(Styles::Bold);
-                }
-
-                std::fmt::Write::write_fmt(&mut buf, format_args!("{decorated}")).unwrap();
-            }
-            buf.into()
-        } else {
-            name.into()
-        };
+        let name: std::borrow::Cow<'_, str> = utilities::colour_test_name(&test.name);
 
         if configuration.dry_run {
             // TODO should dry run print debug out
@@ -258,7 +111,10 @@ pub fn run_tests(
                 if configuration.interactive {
                     let should_break = run_in_alternative_display(|| {
                         match result {
-                            Ok((output, _debug)) => eprintln!("Test {name}\nrecieved:\n{output}"),
+                            Ok((output, _debug)) => {
+                                let output = test.transform.transform(output);
+                                eprintln!("Test {name}\nrecieved:\n{output}");
+                            }
                             Err(output) => eprintln!("Test {name}\nerrored: {output}"),
                         }
 
@@ -274,8 +130,28 @@ pub fn run_tests(
                     }
                 } else {
                     match result {
-                        Ok((output, _debug)) => eprintln!("Test {name}\nrecieved:\n{output}"),
+                        Ok((output, _debug)) => {
+                            let output = test.transform.transform(output);
+                            eprintln!("Test {name}\nrecieved:\n{output}");
+                        }
                         Err(output) => eprintln!("Test {name}\nerrored: {output}"),
+                    }
+                }
+            }
+        } else if configuration.infill && test.expected.0 == "???" {
+            if !skip_test {
+                let result = runner.run(test);
+                match result {
+                    Ok((output, _debug)) => {
+                        let output = test.transform.transform(output);
+                        results.changes.push((test.expected.1.clone(), output));
+                        println!("test {name} ... {result}", result = "infilled".purple());
+                    }
+                    Err(output) => {
+                        println!(
+                            "test {name} ... {result} {output}",
+                            result = "errored".red()
+                        );
                     }
                 }
             }
@@ -287,17 +163,18 @@ pub fn run_tests(
             let result = runner.run(test);
             let result = match result {
                 Ok((output, debug)) => {
-                    if let Some(ref expected) = test.expected {
-                        if is_equal_ignore_new_line_sequence(&output, expected) {
-                            Ok(())
-                        } else {
-                            let comparison =
-                                pretty_assertions::StrComparison::new(expected, &output)
-                                    .to_string();
-                            Err((comparison, debug))
-                        }
-                    } else {
+                    let output = test.transform.transform(output);
+                    if is_equal_ignore_new_line_sequence(
+                        &output,
+                        &test.expected.0,
+                        test.wildcard_lines,
+                    ) {
                         Ok(())
+                    } else {
+                        let comparison =
+                            pretty_assertions::StrComparison::new(&test.expected.0, &output)
+                                .to_string();
+                        Err((comparison, debug))
                     }
                 }
                 Err(err) => Err((String::default(), err)),
@@ -324,6 +201,7 @@ pub fn run_tests_under_glob(
     pattern: &str,
     mut runner: impl Runner,
     configuration: &RunConfiguration,
+    config_file: Option<String>,
 ) -> Result<(), usize> {
     let now = std::time::Instant::now();
     let mut results = TestResults::default();
@@ -333,10 +211,24 @@ pub fn run_tests_under_glob(
         .filter_map(Result::ok)
         .filter(|path| path.is_file());
 
+    let test_options = if let Some(config_file) = config_file {
+        let file = std::fs::read_to_string(config_file).unwrap();
+        parsing::parse_yaml_config(&file)
+    } else {
+        Options::default()
+    };
+
     for path in paths {
-        let content = std::fs::read_to_string(path).unwrap();
-        let input = extract_tests(&content, configuration.lists_to_code_block);
-        let result = run_tests(&input.tests, &mut runner, configuration);
+        let content = std::fs::read_to_string(&path).unwrap();
+        let input = parsing::extract_tests(&content, &test_options);
+        let mut result = run_tests(&input.tests, &mut runner, configuration);
+        if !result.changes.is_empty() {
+            utilities::changes::apply_changes(
+                &mut std::fs::File::create(path).unwrap(),
+                &content,
+                std::mem::take(&mut result.changes),
+            );
+        }
         results.append(result);
     }
 
@@ -364,7 +256,7 @@ pub fn run_tests_under_content(
     mut runner: impl Runner,
     configuration: &RunConfiguration,
 ) -> Result<(), usize> {
-    let input = extract_tests(content, configuration.lists_to_code_block);
+    let input = parsing::extract_tests(content, &Options::default());
     let count = input.tests.len();
 
     println!("\nrunning {count} tests");
@@ -393,6 +285,7 @@ pub fn print_test_results(
         count,
         failures,
         skipped,
+        changes: _,
     } = results;
 
     if !failures.is_empty() {
@@ -440,4 +333,61 @@ pub fn print_test_results(
     eprintln!(
         "\ntest result: {result}. {passed} passed; {failed} failed; {ignored} ignored; {measured} measured; {filtered_out} filtered out; finished in {elapsed:?}"
     );
+}
+
+pub mod options {
+    #[derive(Debug, Default, Clone)]
+    pub enum TransformOutput {
+        #[default]
+        None,
+        Basic,
+        Falsy,
+    }
+
+    impl TransformOutput {
+        #[must_use]
+        pub fn transform(&self, on: String) -> String {
+            match self {
+                Self::None => on,
+                Self::Basic | Self::Falsy => {
+                    let mut buf = String::new();
+                    for line in on.lines() {
+                        let tline = line.strip_suffix(',').unwrap_or(line);
+                        // WIP
+                        let skip = tline.ends_with("None")
+                            || tline.ends_with("\"\"")
+                            || tline.ends_with("[]")
+                            || tline.ends_with("()")
+                            || tline.ends_with("{}")
+                            || {
+                                if let Self::Falsy = self {
+                                    tline.ends_with("false")
+                                } else {
+                                    false
+                                }
+                            };
+
+                        /* || tline.ends_with("]") || tline.ends_with("}") || tline.ends_with(")"); */
+
+                        if !skip {
+                            if !buf.is_empty() {
+                                buf.push('\n');
+                            }
+                            buf.push_str(line);
+                        }
+                    }
+                    buf
+                }
+            }
+        }
+
+        #[must_use]
+        pub fn as_option(self) -> Option<Self> {
+            if let Self::None = self {
+                None
+            } else {
+                Some(self)
+            }
+        }
+    }
 }

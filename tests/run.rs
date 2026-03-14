@@ -1,8 +1,10 @@
-use spectra::{RunConfiguration, extract_tests, run_tests, runners::program::Command};
+use spectra::{
+    Options, RunConfiguration, parsing::extract_tests, run_tests, runners::program::Command,
+};
 
-static SPECIFICATION_UPPERCASE: &str = include_str!("../examples/specification.uppercase.md");
-static SPECIFICATION_LIST: &str = include_str!("../examples/specification.lists.md");
-static SPECIFICATION_OPTIONS: &str = include_str!("../examples/specification.options.md");
+static SPECIFICATION_UPPERCASE: &str = include_str!("../include/specification.uppercase.md");
+static SPECIFICATION_LIST: &str = include_str!("../include/specification.lists.md");
+static SPECIFICATION_OPTIONS: &str = include_str!("../include/specification.options.md");
 
 /// test output during testing can get confusing
 fn no_output_run_configuration() -> RunConfiguration {
@@ -14,7 +16,7 @@ fn no_output_run_configuration() -> RunConfiguration {
 
 #[test]
 fn pass() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let mut runner = Command::new("bun run examples/example_program.js {content} --uppercase");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
@@ -27,21 +29,25 @@ fn pass() {
 
 #[test]
 fn pass_stdout_stderr() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let mut runner =
-        Command::new("bun run examples/example_stdin_stdout_program.js --uppercase --rpc");
+        Command::new("bun run examples/example_program.js --uppercase --rpc --interactive");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     assert!(results.failures.is_empty());
 
-    let mut runner = Command::new("bun run examples/example_stdin_stdout_program.js --rpc");
+    let mut runner = Command::new("bun run examples/example_program.js --rpc --interactive");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     assert_eq!(results.failures.len(), 3);
 }
 
 #[test]
 fn pass_lists() {
-    let input = extract_tests(SPECIFICATION_LIST, true);
+    let options = Options {
+        lists_as_code_blocks: true,
+        ..Options::default()
+    };
+    let input = extract_tests(SPECIFICATION_LIST, &options);
 
     let mut runner =
         Command::new("bun run examples/example_program.js {content} --uppercase --use-lists");
@@ -60,11 +66,11 @@ fn pass_lists() {
 
 #[test]
 fn program_crash() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let commands: &[&str] = &[
-        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-crash",
-        "cargo run --example example_stdin_stdout_program -- --uppercase --rpc --intentional-crash",
+        "bun run examples/example_program.js --uppercase --rpc --intentional-crash --interactive",
+        "cargo run --example example_program -- --uppercase --rpc --intentional-crash --interactive",
     ];
 
     for mut runner in commands.iter().copied().map(Command::new) {
@@ -79,10 +85,10 @@ fn program_crash() {
 
 #[test]
 fn program_timeout() {
-    let input = extract_tests(SPECIFICATION_UPPERCASE, false);
+    let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
     let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-timeout --timeout 1000",
+        "bun run examples/example_program.js --uppercase --rpc --interactive --intentional-timeout --timeout 1000",
     );
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     // test 2 does not run in under 1000 ms
@@ -96,7 +102,7 @@ fn program_timeout() {
     );
 
     let mut runner = Command::new(
-        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc --intentional-timeout --timeout 5000",
+        "bun run examples/example_program.js --uppercase --rpc --interactive --intentional-timeout --timeout 5000",
     );
 
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
@@ -105,11 +111,11 @@ fn program_timeout() {
 
 #[test]
 fn program_options() {
-    let input = extract_tests(SPECIFICATION_OPTIONS, false);
+    let input = extract_tests(SPECIFICATION_OPTIONS, &Options::default());
 
     let commands: &[&str] = &[
-        "bun run examples/example_stdin_stdout_program.js --uppercase --rpc",
-        "cargo run --example example_stdin_stdout_program -- --uppercase --rpc",
+        "bun run examples/example_program.js --uppercase --rpc --interactive",
+        "cargo r --example example_program -- --uppercase --rpc --interactive",
     ];
 
     for mut runner in commands.iter().copied().map(Command::new) {

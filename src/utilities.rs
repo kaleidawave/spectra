@@ -1,15 +1,35 @@
 use std::borrow::Cow;
 
+pub type SliceRange = std::ops::Range<usize>;
+
 #[must_use]
-pub fn is_equal_ignore_new_line_sequence(lhs: &str, rhs: &str) -> bool {
+#[allow(clippy::collapsible_if)]
+pub fn is_equal_ignore_new_line_sequence(
+    expected: &str,
+    recieved: &str,
+    wildcard_lines: bool,
+) -> bool {
     // We should not care about trailing new lines here...
-    let mut lhs = lhs.lines();
-    let mut rhs = rhs.lines();
+    let mut expected = expected.lines();
+    let mut recieved = recieved.lines();
     loop {
-        match (lhs.next(), rhs.next()) {
-            (Some(lhs), Some(rhs)) => {
-                if lhs != rhs {
-                    return false;
+        match (expected.next(), recieved.next()) {
+            (Some(expected), Some(recieved)) => {
+                if wildcard_lines {
+                    let expected = expected.trim();
+                    if let Some(before) = expected.strip_suffix('?') {
+                        if !recieved.starts_with(before) {
+                            return false;
+                        }
+                    } else if let Some(after) = expected.strip_prefix('?') {
+                        if !recieved.ends_with(after) {
+                            return false;
+                        }
+                    }
+                } else {
+                    if expected != recieved {
+                        return false;
+                    }
                 }
             }
             (Some(_), _) | (_, Some(_)) => {
@@ -19,6 +39,61 @@ pub fn is_equal_ignore_new_line_sequence(lhs: &str, rhs: &str) -> bool {
                 return true;
             }
         }
+    }
+}
+
+#[must_use]
+pub fn colour_test_name(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.contains(['*', '`']) {
+        use colored::{Color, ColoredString, Styles};
+        use simple_markdown_parser::{MarkdownPart, PartsIterator, TextDecoration};
+
+        let mut buf = String::new();
+        for part in PartsIterator::new(name) {
+            let mut decorated: ColoredString = part.on.into();
+            if let MarkdownPart::InlineCode = part.kind {
+                decorated.fgcolor = Some(Color::Black);
+                decorated.bgcolor = Some(Color::BrightBlack);
+            }
+            if part.decoration.contains(TextDecoration::EMPHASIS) {
+                decorated.style.add(Styles::Italic);
+            }
+            if part.decoration.contains(TextDecoration::BOLD) {
+                decorated.style.add(Styles::Bold);
+            }
+
+            std::fmt::Write::write_fmt(&mut buf, format_args!("{decorated}")).unwrap();
+        }
+        buf.into()
+    } else {
+        name.into()
+    }
+}
+
+#[derive(Debug)]
+pub struct TextWithSource(pub String, pub SliceRange);
+
+impl Default for TextWithSource {
+    fn default() -> Self {
+        Self(String::new(), 0..0)
+    }
+}
+
+impl TextWithSource {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl PartialEq<str> for TextWithSource {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
     }
 }
 
@@ -130,9 +205,15 @@ pub mod commands {
                 match out {
                     Ok(item) => match item {
                         ProcessNotification::Message(channel, message) => {
-                            // TODO channel
                             if end_message.is_some_and(|expected| expected == message) {
-                                break;
+                                // TEMP to read any stderr left over
+                                let timeout = time::Duration::from_millis(10);
+                                let last = self.receiver.recv_timeout(timeout);
+                                if let Ok(ProcessNotification::Message(channel, message)) = last {
+                                    messages.push((channel, message));
+                                }
+
+                                return (messages, Ok(ProcessStatus::Continuing));
                             }
                             messages.push((channel, message));
                         }
@@ -149,8 +230,6 @@ pub mod commands {
                     }
                 }
             }
-
-            (messages, Ok(ProcessStatus::Continuing))
         }
 
         pub fn end(mut self) -> io::Result<process::ExitStatus> {
@@ -273,5 +352,21 @@ mod tests {
             ArgumentIter::new(on).collect::<Vec<_>>(),
             vec!["testing", "escaping '", "with \" quote"]
         );
+    }
+}
+
+pub(crate) mod changes {
+    pub(crate) type Changes = Vec<(super::SliceRange, String)>;
+
+    pub(crate) fn apply_changes<W: std::io::Write>(to: &mut W, on: &str, changes: Changes) {
+        let mut cur = 0;
+        for (range, item) in changes {
+            let (lhs, rhs) = (range.start, range.end);
+            debug_assert!(cur <= lhs, "cur > lhs");
+            write!(to, "{item}", item = &on[cur..lhs]).unwrap();
+            write!(to, "{item}").unwrap();
+            cur = rhs;
+        }
+        write!(to, "{item}", item = &on[cur..]).unwrap();
     }
 }
