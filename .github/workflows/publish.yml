@@ -1,4 +1,4 @@
-name: Build assets for projects
+name: Check and release
 
 on: push
 
@@ -6,26 +6,66 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
+    timeout-minutes: 3
+
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        # Required by some tests
+      - uses: oven-sh/setup-bun@v2
 
       - name: Run check
         run: cargo check
 
-      # test setup
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Run setup
-        run: cargo build --example example_stdin_stdout_program
-      # end test setup
-
       - name: Run test
         run: cargo test
 
-  publish-assets:
-    permissions: write-all
+  make-release:
     needs: check
+
+    # Publish on `main` branch additions
+    if: ${{ github.ref_name == 'main' }}
+
+    runs-on: ubuntu-latest
+
+    permissions: { contents: write }
+    outputs: { tag: "${{ steps.create-release.outputs.tag }}" }
+
+    steps:
+    - uses: actions/checkout@v6  
+    - uses: kaleidawave/release-downloader@improvements
+      env: { GH_TOKEN: "${{ github.token }}" }
+      with: { items: 'kaleidawave/crates-release-gh-action@assets[crates-release]' }
+    
+    - name: Update version
+      id: update-version
+      run: |
+        request=$(curl '${{ secrets.VERSION_REQUEST_URL }}')
+        version=$(crates-release change-version $request --print-new-version)
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Create release
+      id: create-release
+      env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      run: |
+        tag="v${{ steps.update-version.outputs.version }}"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        
+        git add -u
+        git commit -m "Release '${{ steps.update-version.outputs.version }}'"
+        git tag -a $tag -m "release ${{ steps.update-version.outputs.version }}"
+        git push origin ${{ github.ref_name }}
+        git push origin tag $tag
+
+        gh release create $tag --target ${{ github.ref_name }} -t "Release ${{ steps.update-version.outputs.version }}"
+
+  publish-assets:
+    needs: make-release
+
+    permissions: write-all
 
     strategy:
       matrix:
@@ -44,30 +84,11 @@ jobs:
     env:
       PROFILE: dev
       OUT: target/debug
-      # can be overwritten
-      GH_RELEASE: canary
+      GH_TOKEN: ${{ github.token }}
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: kaleidawave/release-downloader@improvements
-        env: { GH_TOKEN: "${{ github.token }}" }
-        with: { items: 'kaleidawave/crates-release-gh-action@canary[crates-release]' }
-
-      - name: Create release if on main branch
-        if: ${{ github.ref == 'refs/heads/main' }}
-        shell: bash
-        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        run: |
-          # update version and get tag
-          version=$(crates-release change-version ${{ secrets.NEXT_VERSION }} --print-new-version)
-
-          git tag -a "v$version" -m "spectra $version"
-          git push --tags
-
-          gh release create "v$version" -t "Spectra $version"
-          # so that release knows where to upload assets
-          echo "GH_RELEASE=v$version" >> "$GITHUB_ENV"
 
       - name: Set variables
         id: information
@@ -89,4 +110,4 @@ jobs:
           FROM="${{ env.OUT }}/spectra${{ matrix.executable-extension }}"
           TO="spectra-${{ matrix.platform-name }}${{ matrix.executable-extension }}"
           mv $FROM $TO
-          gh release upload $GH_RELEASE "$TO" --clobber
+          gh release upload "${{ needs.make-release.outputs.tag }}" "$TO" --clobber
