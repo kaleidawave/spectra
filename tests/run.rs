@@ -18,15 +18,11 @@ fn no_output_run_configuration() -> RunConfiguration {
 fn pass() {
     let input = extract_tests(SPECIFICATION_UPPERCASE, &Options::default());
 
-    let mut runner = Command::new(
-        "bun run examples/example_program.js {content} --uppercase",
-    );
+    let mut runner = Command::new("bun run examples/example_program.js {content} --uppercase");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     assert!(results.failures.is_empty());
 
-    let mut runner = Command::new(
-        "bun run examples/example_program.js {content}",
-    );
+    let mut runner = Command::new("bun run examples/example_program.js {content}");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     assert_eq!(results.failures.len(), 3);
 }
@@ -53,9 +49,8 @@ fn pass_lists() {
     };
     let input = extract_tests(SPECIFICATION_LIST, &options);
 
-    let mut runner = Command::new(
-        "bun run examples/example_program.js {content} --uppercase --use-lists",
-    );
+    let mut runner =
+        Command::new("bun run examples/example_program.js {content} --uppercase --use-lists");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     if !results.failures.is_empty() {
         for (test, _, out) in &results.failures {
@@ -64,9 +59,7 @@ fn pass_lists() {
         panic!("not empty")
     }
 
-    let mut runner = Command::new(
-        "bun run examples/example_program.js --use-lists",
-    );
+    let mut runner = Command::new("bun run examples/example_program.js --use-lists");
     let results = run_tests(&input.tests, &mut runner, &no_output_run_configuration());
     assert_eq!(results.failures.len(), 3);
 }

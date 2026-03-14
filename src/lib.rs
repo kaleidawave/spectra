@@ -145,8 +145,14 @@ pub fn run_tests(
                     Ok((output, _debug)) => {
                         let output = test.transform.transform(output);
                         results.changes.push((test.expected.1.clone(), output));
+                        println!("test {name} ... {result}", result = "infilled".purple());
                     }
-                    Err(output) => eprintln!("Test {name}\nerrored: {output}"),
+                    Err(output) => {
+                        println!(
+                            "test {name} ... {result} {output}",
+                            result = "errored".red()
+                        );
+                    }
                 }
             }
         } else if skip_test {

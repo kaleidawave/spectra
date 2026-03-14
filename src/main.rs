@@ -223,6 +223,7 @@ fn run() -> Result<(), ExitCode> {
                             transform: transform,
                             wildcard_lines: test.wildcard_lines,
                             merge_stderr: test.merge_stderr,
+                            skip: test.skip,
                         });
                     }
                 } else {

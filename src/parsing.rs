@@ -84,6 +84,9 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
     let mut test_arguments: String = String::new();
     let mut test_expected: TextWithSource = TextWithSource::new();
 
+    // Includes the level
+    let mut skip_level: Option<u8> = None;
+
     // TODO
     // let mut only_language: Option<String> = None;
 
@@ -107,7 +110,7 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
         };
 
         if add_new {
-            let skip = test_name.ends_with("(skip)");
+            let skip = skip_level.is_some();
 
             let name: String = if let MarkdownElement::Heading { .. } = element {
                 if in_block > 0 {
@@ -164,10 +167,26 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
             }
             MarkdownElement::Heading { level, content } => {
                 // TODO
+                let (skip, content): (bool, &str) =
+                    if let Some(after) = content.0.trim_end().strip_suffix("(skip)") {
+                        (true, after)
+                    } else {
+                        (false, &content.0)
+                    };
+
                 if level >= 3 {
-                    test_name = content.0.to_owned(); //.no_decoration();
+                    test_name = content.to_owned(); //.no_decoration();
                 } else {
-                    section = content.0.to_owned(); // .no_decoration();
+                    section = content.to_owned(); // .no_decoration();
+                }
+
+                // Controls level of skip
+                if let Some(current_skip_level) = skip_level {
+                    if level <= current_skip_level {
+                        skip_level = skip.then_some(level);
+                    }
+                } else if skip {
+                    skip_level = Some(level);
                 }
             }
             MarkdownElement::Paragraph(inner) => {
