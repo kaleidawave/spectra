@@ -44,7 +44,7 @@ fn pass_stdout_stderr() {
 #[test]
 fn pass_lists() {
     let options = Options {
-        lists_as_code_blocks: true,
+        lists_as_expected: true,
         ..Options::default()
     };
     let input = extract_tests(SPECIFICATION_LIST, &options);

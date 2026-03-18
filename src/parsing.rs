@@ -3,16 +3,34 @@ use super::{Input, Options, Test, options::TransformOutput};
 use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
 use simple_yaml_parser::{RootYAMLValue, YAMLKey, parse as parse_yaml};
 
-pub(crate) fn parse_yaml_config(content: &str) -> Options {
+pub type Unknown = Vec<String>;
+
+pub(crate) fn parse_yaml_config(content: &str) -> Result<Options, Unknown> {
     let mut options = Options::default();
+    let mut unknown = Vec::new();
+
     parse_yaml(&content, |keys, value| {
-        parse_yaml_keys(keys, value, &mut options);
+        // .clone()
+        let result = parse_yaml_keys(keys, value, &mut options);
+        if let Err(()) = result {
+            //  {value:?}
+            unknown.push(format!("unknown {keys:?}"));
+        }
     })
     .expect("invalid file");
-    options
+
+    if unknown.is_empty() {
+        Ok(options)
+    } else {
+        Err(unknown)
+    }
 }
 
-fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: &mut Options) {
+fn parse_yaml_keys<'a>(
+    keys: &[YAMLKey<'a>],
+    value: RootYAMLValue<'a>,
+    options: &mut Options,
+) -> Result<(), ()> {
     use YAMLKey::Slice;
 
     match keys {
@@ -26,7 +44,8 @@ fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: 
         // }
         [Slice("include-language-as-option")] => {
             // prepends *language*\n---\n
-            todo!();
+            // todo!();
+            Err(())
         }
         [Slice("transform")] => {
             // removes lines that end in some substring
@@ -38,33 +57,37 @@ fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: 
                     panic!("unknown {value:?}. expected 'null', 'basic' or 'falsy'");
                 }
             };
+            Ok(())
         }
         [Slice("merge-stderr")] => {
             // TODO
             // removes lines that end in some substring
             options.merge_stderr = true;
+            Ok(())
         }
         [Slice("wildcard-lines")] => {
             // TODO
             // removes lines that end in some substring
             options.wildcard_lines = true;
+            Ok(())
         }
-        [Slice("lists-as-code-blocks")] => {
+        [Slice("lists-as-expected")] => {
             // TODO
-            options.lists_as_code_blocks = true;
+            options.lists_as_expected = true;
             // if let RootYAMLValue::Boolean(value) = value {
             // } else {
             //     eprintln!("expected boolean");
             // }
+            Ok(())
         }
-        keys => {
-            eprintln!("unknown {keys:?} {value:?}");
-        }
+        _keys => Err(()),
     }
 }
 
+pub type SpecificationError = simple_markdown_parser::MarkdownParseError<Unknown>;
+
 #[must_use]
-pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
+pub fn extract_tests(content: &str, parent_options: &Options) -> Result<Input, SpecificationError> {
     let mut tests: Vec<Test> = Vec::new();
 
     // TODO
@@ -84,24 +107,24 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
     let mut test_arguments: String = String::new();
     let mut test_expected: TextWithSource = TextWithSource::new();
 
-    // Includes the level
+    // Includes the heading level
     let mut skip_level: Option<u8> = None;
 
     // TODO
     // let mut only_language: Option<String> = None;
 
-    let result = parse::<()>(content, |element| {
+    parse::<Unknown>(content, |element| {
         let mut is_with = false;
 
         // TODO
         // let _empty_blocks = false;
 
-        let add_new = if let MarkdownElement::Heading { level, .. } = element {
+        let add_new = if let MarkdownElement::Heading { .. } = element {
             if test_expected.is_empty() {
                 test_case.clear();
                 false
             } else {
-                level >= 3
+                true
             }
         } else if let MarkdownElement::CodeBlock(_) = element {
             !test_expected.is_empty()
@@ -159,26 +182,21 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
 
         match element {
             MarkdownElement::Frontmatter(frontmatter) => {
-                let result = frontmatter
-                    .parse_yaml(|keys, value| parse_yaml_keys(keys, value, &mut file_options));
+                let result = frontmatter.parse_yaml(|keys, value| {
+                    parse_yaml_keys(keys, value, &mut file_options).expect("TODO raise")
+                });
                 if let Err(err) = result {
                     eprintln!("error parsing yaml {err:?}");
                 }
             }
             MarkdownElement::Heading { level, content } => {
                 // TODO
-                let (skip, content): (bool, &str) =
+                let (skip, heading): (bool, &str) =
                     if let Some(after) = content.0.trim_end().strip_suffix("(skip)") {
                         (true, after)
                     } else {
                         (false, &content.0)
                     };
-
-                if level >= 3 {
-                    test_name = content.to_owned(); //.no_decoration();
-                } else {
-                    section = content.to_owned(); // .no_decoration();
-                }
 
                 // Controls level of skip
                 if let Some(current_skip_level) = skip_level {
@@ -187,6 +205,14 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                     }
                 } else if skip {
                     skip_level = Some(level);
+                }
+
+                let heading = heading.trim_end();
+
+                if level >= 3 {
+                    test_name = heading.to_owned(); //.no_decoration();
+                } else {
+                    section = heading.to_owned(); // .no_decoration();
                 }
             }
             MarkdownElement::Paragraph(inner) => {
@@ -199,10 +225,10 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                 }
             }
             MarkdownElement::List(list) => {
-                let lists_as_code_blocks =
-                    parent_options.lists_as_code_blocks || file_options.lists_as_code_blocks;
+                let lists_as_expected =
+                    parent_options.lists_as_expected || file_options.lists_as_expected;
                 let should_add =
-                    lists_as_code_blocks && (!test_case.is_empty() && test_expected.is_empty());
+                    lists_as_expected && (!test_case.is_empty() && test_expected.is_empty());
                 if should_add {
                     let inner = &list.0.0;
                     let start = inner.as_ptr() as usize - content.as_ptr() as usize;
@@ -234,11 +260,10 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
 
         last_was_with = is_with;
         Ok(())
-    });
+    })?;
 
-    assert!(result.is_ok(), "{result:?}");
     if !test_expected.is_empty() {
-        let skip = test_name.ends_with("(skip)");
+        let skip = skip_level.is_some();
 
         let name = if in_block > 0 {
             in_block += 1;
@@ -277,10 +302,10 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
         tests.push(test);
     }
 
-    Input {
+    Ok(Input {
         tests,
         expected_runner,
-    }
+    })
 }
 
 #[cfg(test)]

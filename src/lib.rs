@@ -58,7 +58,7 @@ pub struct Input {
 
 #[derive(Debug, Default, Clone)]
 pub struct Options {
-    pub lists_as_code_blocks: bool,
+    pub lists_as_expected: bool,
     pub transform: options::TransformOutput,
     pub merge_stderr: bool,
     pub wildcard_lines: bool,
@@ -213,14 +213,14 @@ pub fn run_tests_under_glob(
 
     let test_options = if let Some(config_file) = config_file {
         let file = std::fs::read_to_string(config_file).unwrap();
-        parsing::parse_yaml_config(&file)
+        parsing::parse_yaml_config(&file).expect("TODO cargo parsing")
     } else {
         Options::default()
     };
 
     for path in paths {
         let content = std::fs::read_to_string(&path).unwrap();
-        let input = parsing::extract_tests(&content, &test_options);
+        let input = parsing::extract_tests(&content, &test_options).expect("TODO cargo parsing");
         let mut result = run_tests(&input.tests, &mut runner, configuration);
         if !result.changes.is_empty() {
             utilities::changes::apply_changes(
@@ -256,7 +256,7 @@ pub fn run_tests_under_content(
     mut runner: impl Runner,
     configuration: &RunConfiguration,
 ) -> Result<(), usize> {
-    let input = parsing::extract_tests(content, &Options::default());
+    let input = parsing::extract_tests(content, &Options::default()).expect("TODO cargo parsing");
     let count = input.tests.len();
 
     println!("\nrunning {count} tests");
@@ -389,5 +389,14 @@ pub mod options {
                 Some(self)
             }
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "Rust" fn parse_tests(on: &str) -> Result<String, String> {
+    let input = parsing::extract_tests(on, &Options::default());
+    match input {
+        Ok(input) => Ok(format!("{input:#?}", input = input.tests)),
+        Err(err) => Err(format!("{err:?}")),
     }
 }
