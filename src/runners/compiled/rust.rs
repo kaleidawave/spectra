@@ -35,22 +35,38 @@ fn test() {
 
 impl Rust {
     #[allow(clippy::missing_transmute_annotations, clippy::used_underscore_binding)]
-    pub fn new(path: &str, name: &str) -> Result<Self, String> {
+    pub fn new(path: &str, name: &str, example: Option<&str>) -> Result<Self, String> {
+        let target_args: &[&str] = if let Some(example) = example { 
+            &["--example", example]
+        } else {
+            &["--lib"]
+        };
+
         let output = std::process::Command::new("cargo")
             .arg("rustc")
             .arg("--crate-type")
             .arg("cdylib")
             .arg("--message-format")
             .arg("json")
+            .args(target_args)
             .stderr(std::process::Stdio::inherit())
             .current_dir(path)
             .output();
 
         let Ok(output) = output else {
-            return Err("could not build library".to_owned());
+            return Err("could not build library (error running command)".to_owned());
         };
         if !output.status.success() {
-            return Err("could not build library".to_owned());
+            let _output = std::process::Command::new("cargo")
+                .arg("rustc")
+                .arg("--crate-type")
+                .arg("cdylib")
+                .args(target_args)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .current_dir(path)
+                .output();
+            return Err(String::new());
         }
 
         let out_json = str::from_utf8(&output.stdout).unwrap();

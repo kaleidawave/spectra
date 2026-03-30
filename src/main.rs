@@ -166,8 +166,15 @@ fn run() -> Result<(), ExitCode> {
             } else {
                 let command = command.unwrap();
                 if let Some(after) = command.strip_prefix("rust:") {
-                    let (path, name) = after.split_once("::").unwrap_or((after, "test"));
-                    let runner = runners::compiled::rust::Rust::new(path, name);
+                    let (before, name) = after.rsplit_once("::").unwrap_or((after, "test"));
+                    let (path, example) = if let Some(example) = before.strip_prefix("examples/") {
+                        (".", Some(example))
+                    } else if let Some((path, example)) = before.rsplit_once("/examples/") {
+                        (path, Some(example))
+                    } else {
+                        (before, None)
+                    };
+                    let runner = runners::compiled::rust::Rust::new(path, name, example);
                     match runner {
                         Ok(runner) => {
                             let result = run_tests_under_glob(
