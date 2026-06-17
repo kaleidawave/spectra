@@ -148,24 +148,27 @@ fn run() -> Result<(), ExitCode> {
             let pattern = pattern.unwrap();
 
             if selected.name == "compare" {
-                let command_pattern = command.unwrap();
-                // command'S'
-                let command_pattern = runners::program::Commands::new(&command_pattern);
+                todo!();
+                // let command_pattern = command.unwrap();
+                // // command'S'
+                // let command_pattern = runners::program::Commands::new(&command_pattern);
 
-                let result = run_tests_under_glob(
-                    &pattern,
-                    command_pattern,
-                    &run_configuration,
-                    config_file,
-                );
-                if result.is_ok() {
-                    Ok(())
-                } else {
-                    Err(ExitCode::FAILURE)
-                }
+                // let result = run_tests_under_glob(
+                //     &pattern,
+                //     command_pattern,
+                //     &run_configuration,
+                //     config_file,
+                // );
+                // if result.is_ok() {
+                //     Ok(())
+                // } else {
+                //     Err(ExitCode::FAILURE)
+                // }
             } else {
                 let command = command.unwrap();
-                if let Some(after) = command.strip_prefix("rust:") {
+                let runner: Box<dyn crate::runners::Runner> = if let Some(after) =
+                    command.strip_prefix("rust:")
+                {
                     let (before, name) = after.rsplit_once("::").unwrap_or((after, "test"));
                     let (path, example) = if let Some(example) = before.strip_prefix("examples/") {
                         (".", Some(example))
@@ -174,35 +177,26 @@ fn run() -> Result<(), ExitCode> {
                     } else {
                         (before, None)
                     };
-                    let runner = runners::compiled::rust::Rust::new(path, name, example);
-                    match runner {
-                        Ok(runner) => {
-                            let result = run_tests_under_glob(
-                                &pattern,
-                                runner,
-                                &run_configuration,
-                                config_file,
-                            );
-                            if result.is_ok() {
-                                Ok(())
-                            } else {
-                                Err(ExitCode::FAILURE)
-                            }
-                        }
-                        Err(err) => {
-                            eprintln!("Error building Rust, {err:?}");
-                            return Err(ExitCode::FAILURE);
-                        }
-                    }
+                    let runner = runners::compiled::rust::Rust::new(path, name, example).unwrap();
+                    Box::new(runner)
+                } else if let Some(after) = command.strip_prefix("shell:") {
+                    Box::new(match after {
+                        "shell" => crate::runners::shell::ShellRunner::Shell,
+                        "zsh" => crate::runners::shell::ShellRunner::Zsh,
+                        "bash" => crate::runners::shell::ShellRunner::Bash,
+                        shell => panic!("unknown {shell:?}"),
+                    })
                 } else {
-                    let command = runners::program::Command::new(&command);
-                    let result =
-                        run_tests_under_glob(&pattern, command, &run_configuration, config_file);
-                    if result.is_ok() {
-                        Ok(())
-                    } else {
-                        Err(ExitCode::FAILURE)
-                    }
+                    Box::new(runners::program::Command::new(&command))
+                };
+
+                let runners = crate::runners::Runners::new(runner);
+                let result =
+                    run_tests_under_glob(&pattern, runners, &run_configuration, config_file);
+                if result.is_ok() {
+                    Ok(())
+                } else {
+                    Err(ExitCode::FAILURE)
                 }
             }
         }
@@ -247,7 +241,8 @@ fn run() -> Result<(), ExitCode> {
 
             for path in paths {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let input = extract_tests(&content, &spectra::Options::default()).expect("TODO unwrap");
+                let input =
+                    extract_tests(&content, &spectra::Options::default()).expect("TODO unwrap");
                 if as_json {
                     for test in &input.tests {
                         if json_buf.len() > 1 {
@@ -264,6 +259,7 @@ fn run() -> Result<(), ExitCode> {
                             wildcard_lines: test.wildcard_lines,
                             merge_stderr: test.merge_stderr,
                             skip: test.skip,
+                            runner_name: test.runner_name,
                         });
                     }
                 } else {

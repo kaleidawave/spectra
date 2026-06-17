@@ -2,11 +2,10 @@ pub mod parsing;
 pub mod runners;
 pub mod utilities;
 
-use utilities::{filter, is_equal_ignore_new_line_sequence, run_in_alternative_display};
-
 use colored::Colorize as Colourise;
-
+use runners::{Runner, Runners};
 use std::io;
+use utilities::{filter, is_equal_ignore_new_line_sequence, run_in_alternative_display};
 
 #[derive(Debug)]
 pub struct Test {
@@ -28,17 +27,8 @@ pub struct Test {
     pub wildcard_lines: bool,
     /// a function to run the output through before equating with expected
     pub transform: options::TransformOutput,
-}
-
-pub trait Runner: Sized {
-    /// Returns `Ok((*stdout*, *stderr*))`
-    ///
-    /// # Errors
-    /// if test failed on runner, return a `Err` with some message about why it failed
-    fn run(&mut self, test: &Test) -> Result<(String, String), String>;
-
-    /// Cleanup
-    fn close(self) {}
+    /// what to run the test under
+    pub runner_name: String,
 }
 
 #[derive(Default)]
@@ -59,9 +49,10 @@ pub struct Input {
 #[derive(Debug, Default, Clone)]
 pub struct Options {
     pub lists_as_expected: bool,
-    pub transform: options::TransformOutput,
     pub merge_stderr: bool,
     pub wildcard_lines: bool,
+    pub transform: options::TransformOutput,
+    pub include_language_as_option: bool,
 }
 
 #[derive(Debug, Default)]
@@ -84,7 +75,7 @@ impl TestResults {
 
 pub fn run_tests(
     tests: &[Test],
-    runner: &mut impl Runner,
+    runners: &mut runners::Runners,
     configuration: &RunConfiguration,
 ) -> TestResults {
     let mut results = TestResults::default();
@@ -107,6 +98,8 @@ pub fn run_tests(
         if configuration.dry_run {
             // TODO should dry run print debug out
             if !skip_test {
+                let runner = runners.get(&test.runner_name).expect("no runner");
+
                 let result = runner.run(test);
                 if configuration.interactive {
                     let should_break = run_in_alternative_display(|| {
@@ -140,6 +133,7 @@ pub fn run_tests(
             }
         } else if configuration.infill && test.expected.0 == "???" {
             if !skip_test {
+                let runner = runners.get(&test.runner_name).expect("no runner");
                 let result = runner.run(test);
                 match result {
                     Ok((output, _debug)) => {
@@ -160,6 +154,7 @@ pub fn run_tests(
                 println!("test {name} ... {result}", result = "skipped".blue());
             }
         } else {
+            let runner = runners.get(&test.runner_name).expect("no runner");
             let result = runner.run(test);
             let result = match result {
                 Ok((output, debug)) => {
@@ -199,7 +194,7 @@ pub fn run_tests(
 
 pub fn run_tests_under_glob(
     pattern: &str,
-    mut runner: impl Runner,
+    mut runners: Runners,
     configuration: &RunConfiguration,
     config_file: Option<String>,
 ) -> Result<(), usize> {
@@ -221,7 +216,7 @@ pub fn run_tests_under_glob(
     for path in paths {
         let content = std::fs::read_to_string(&path).unwrap();
         let input = parsing::extract_tests(&content, &test_options).expect("TODO cargo parsing");
-        let mut result = run_tests(&input.tests, &mut runner, configuration);
+        let mut result = run_tests(&input.tests, &mut runners, configuration);
         if !result.changes.is_empty() {
             utilities::changes::apply_changes(
                 &mut std::fs::File::create(path).unwrap(),
@@ -232,7 +227,7 @@ pub fn run_tests_under_glob(
         results.append(result);
     }
 
-    runner.close();
+    // runner.close();
 
     let elapsed = now.elapsed();
     if configuration.dry_run {
@@ -253,7 +248,7 @@ pub fn run_tests_under_glob(
 /// returns the number of failed tests
 pub fn run_tests_under_content(
     content: &str,
-    mut runner: impl Runner,
+    mut runners: Runners,
     configuration: &RunConfiguration,
 ) -> Result<(), usize> {
     let input = parsing::extract_tests(content, &Options::default()).expect("TODO cargo parsing");
@@ -263,7 +258,7 @@ pub fn run_tests_under_content(
 
     let now = std::time::Instant::now();
 
-    let results = run_tests(&input.tests, &mut runner, configuration);
+    let results = run_tests(&input.tests, &mut runners, configuration);
     let elapsed = now.elapsed();
     if configuration.dry_run {
         Ok(())

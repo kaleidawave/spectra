@@ -40,6 +40,9 @@ example-list = "cargo r -- list ./include/specification.uppercase.md --json"
 
 example-config-file = "cargo r -- test ./private/specification.lists.md 'cargo r -q --example example_program_stdin -- --uppercase --use-lists --interactive --rpc' --config private/config.yml"
 
+[[test]]
+name = "specification"
+harness = false
 
 [[example]]
 name = "example_program_compiled"
