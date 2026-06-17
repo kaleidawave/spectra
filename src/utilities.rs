@@ -70,8 +70,13 @@ pub fn colour_test_name(name: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-#[derive(Debug)]
 pub struct TextWithSource(pub String, pub SliceRange);
+
+impl std::fmt::Debug for TextWithSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        self.0.fmt(f)
+    }
+}
 
 impl Default for TextWithSource {
     fn default() -> Self {
@@ -88,6 +93,11 @@ impl TextWithSource {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    #[must_use]
+    pub fn is_some(&self) -> bool {
+        !self.0.is_empty()
     }
 }
 

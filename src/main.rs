@@ -79,6 +79,22 @@ fn main() -> ExitCode {
     }
 }
 
+fn info() {
+    let version = option_env!("CARGO_PKG_VERSION").unwrap_or_default();
+    let run_id: String = if let Some(run_id) = option_env!("GITHUB_RUN_ID") {
+        format!(" (run: {run_id}")
+    } else {
+        String::new()
+    };
+    let last_commit: String = if let Some(commit) = option_env!("GIT_LAST_COMMIT") {
+        let commit: &str = &commit[..7];
+        format!(" (commit: {commit}")
+    } else {
+        String::new()
+    };
+    println!("spectra@{version}{last_commit}{run_id} (powered by 'simple-markdown-parser')");
+}
+
 fn run() -> Result<(), ExitCode> {
     let cli = CLI::new(ENDPOINTS, "spectra", Some("info"));
     let (binary_name, result) = cli.run();
@@ -87,14 +103,8 @@ fn run() -> Result<(), ExitCode> {
 
     match selected.name {
         "info" => {
-            let version = option_env!("CARGO_PKG_VERSION").unwrap_or_default();
-            let run_id = option_env!("GITHUB_RUN_ID");
-            let date = option_env!("GIT_LAST_COMMIT").unwrap_or_default();
-            let after = run_id
-                .map(|commit| format!(" (commit {commit} {date})"))
-                .unwrap_or_default();
-
-            println!("spectra{version} {after} (powered by 'simple-markdown-parser')");
+            info();
+            Ok(())
         }
         "test" | "compare" => {
             let mut pattern = None;
@@ -138,31 +148,55 @@ fn run() -> Result<(), ExitCode> {
             let pattern = pattern.unwrap();
 
             if selected.name == "compare" {
-                let command_pattern = command.unwrap();
-                // command'S'
-                let command_pattern = runners::program::Commands::new(&command_pattern);
+                todo!();
+                // let command_pattern = command.unwrap();
+                // // command'S'
+                // let command_pattern = runners::program::Commands::new(&command_pattern);
 
-                let result = run_tests_under_glob(
-                    &pattern,
-                    command_pattern,
-                    &run_configuration,
-                    config_file,
-                );
-                if result.is_err() {
-                    return Err(ExitCode::FAILURE);
-                }
+                // let result = run_tests_under_glob(
+                //     &pattern,
+                //     command_pattern,
+                //     &run_configuration,
+                //     config_file,
+                // );
+                // if result.is_ok() {
+                //     Ok(())
+                // } else {
+                //     Err(ExitCode::FAILURE)
+                // }
             } else {
                 let command = command.unwrap();
-                let result = if let Some(after) = command.strip_prefix("rust:") {
-                    let (path, name) = after.split_once("::").unwrap_or((after, "test"));
-                    let runner = runners::compiled::rust::Rust::new(path, name).unwrap();
-                    run_tests_under_glob(&pattern, runner, &run_configuration, config_file)
+                let runner: Box<dyn crate::runners::Runner> = if let Some(after) =
+                    command.strip_prefix("rust:")
+                {
+                    let (before, name) = after.rsplit_once("::").unwrap_or((after, "test"));
+                    let (path, example) = if let Some(example) = before.strip_prefix("examples/") {
+                        (".", Some(example))
+                    } else if let Some((path, example)) = before.rsplit_once("/examples/") {
+                        (path, Some(example))
+                    } else {
+                        (before, None)
+                    };
+                    let runner = runners::compiled::rust::Rust::new(path, name, example).unwrap();
+                    Box::new(runner)
+                } else if let Some(after) = command.strip_prefix("shell:") {
+                    Box::new(match after {
+                        "shell" => crate::runners::shell::ShellRunner::Shell,
+                        "zsh" => crate::runners::shell::ShellRunner::Zsh,
+                        "bash" => crate::runners::shell::ShellRunner::Bash,
+                        shell => panic!("unknown {shell:?}"),
+                    })
                 } else {
-                    let command = runners::program::Command::new(&command);
-                    run_tests_under_glob(&pattern, command, &run_configuration, config_file)
+                    Box::new(runners::program::Command::new(&command))
                 };
-                if result.is_err() {
-                    return Err(ExitCode::FAILURE);
+
+                let runners = crate::runners::Runners::new(runner);
+                let result =
+                    run_tests_under_glob(&pattern, runners, &run_configuration, config_file);
+                if result.is_ok() {
+                    Ok(())
+                } else {
+                    Err(ExitCode::FAILURE)
                 }
             }
         }
@@ -207,7 +241,8 @@ fn run() -> Result<(), ExitCode> {
 
             for path in paths {
                 let content = std::fs::read_to_string(&path).unwrap();
-                let input = extract_tests(&content, &spectra::Options::default());
+                let input =
+                    extract_tests(&content, &spectra::Options::default()).expect("TODO unwrap");
                 if as_json {
                     for test in &input.tests {
                         if json_buf.len() > 1 {
@@ -224,6 +259,7 @@ fn run() -> Result<(), ExitCode> {
                             wildcard_lines: test.wildcard_lines,
                             merge_stderr: test.merge_stderr,
                             skip: test.skip,
+                            runner_name: test.runner_name,
                         });
                     }
                 } else {
@@ -256,6 +292,7 @@ fn run() -> Result<(), ExitCode> {
             } else {
                 eprintln!("found {count} tests across {files} files");
             }
+            Ok(())
         }
         "specification-test-in-cargo" => {
             use std::io::Write;
@@ -302,9 +339,9 @@ fn run() -> Result<(), ExitCode> {
                 writeln!(&mut test_file, "if output.code().is_none_or(|item| item == 0) {{ ExitCode::SUCCESS }} else {{ ExitCode::FAILURE }}").unwrap();
                 writeln!(&mut test_file, "}}").unwrap();
             }
+
+            Ok(())
         }
         _ => unreachable!(),
     }
-
-    Ok(())
 }

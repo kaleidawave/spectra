@@ -257,8 +257,8 @@ impl Runner for Command {
         }
     }
 
-    fn close(self) {
-        if let Some(Running { mut stdin, process }) = self.currently_running {
+    fn close(&mut self) {
+        if let Some(Running { mut stdin, process }) = self.currently_running.take() {
             // Send the close signal
             writeln!(stdin, "close").unwrap();
 
@@ -338,9 +338,9 @@ impl Runner for Commands {
         Ok((buf, String::new()))
     }
 
-    fn close(self) {
+    fn close(&mut self) {
         self.commands
-            .into_iter()
-            .for_each(|(_, command)| command.close());
+            .drain(..)
+            .for_each(|(_, mut command)| command.close());
     }
 }

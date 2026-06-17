@@ -1,5 +1,5 @@
 ---
-lists-as-code-blocks: true
+lists-as-expected: true
 ---
 
 ### Test 1

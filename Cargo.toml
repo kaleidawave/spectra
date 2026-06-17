@@ -27,15 +27,23 @@ glob = "0.3.3"
 pedantic = "warn"
 
 [package.metadata.scripts]
-example = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_program -- --uppercase --interactive --rpc'"
+example = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_program_stdin -- --uppercase --interactive --rpc'"
 
-example-options = "cargo r -- test ./include/specification.options.md 'cargo r -q --example example_program -- --uppercase --interactive --rpc'"
-example-intentional-crash = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_program -- --uppercase --interactive --rpc --intentional-crash'"
-example-rust = "cargo r -- test ./include/specification.uppercase.md 'rust:include/rust-runner::get_result'"
+example-options = "cargo r -- test ./include/specification.options.md 'cargo r -q --example example_program_stdin -- --uppercase --interactive --rpc'"
+example-intentional-crash = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_program_stdin -- --uppercase --interactive --rpc --intentional-crash'"
+example-rust = "cargo r -- test ./include/specification.uppercase.md 'rust:examples/example_program_compiled::get_result'"
 
-example-infill = "cargo r -- test ./include/specification-infill.md 'cargo r -q --example example_program -- --uppercase --interactive --rpc' --infill"
-example-dry-run = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_program -- --uppercase --interactive --rpc' --dry-run"
+example-infill = "cargo r -- test ./include/specification-infill.md 'cargo r -q --example example_program_stdin -- --uppercase --interactive --rpc' --infill"
+example-dry-run = "cargo r -- test ./include/specification.uppercase.md 'cargo r -q --example example_program_stdin -- --uppercase --interactive --rpc' --dry-run"
 
 example-list = "cargo r -- list ./include/specification.uppercase.md --json"
 
-example-config-file = "cargo r -- test ./private/specification.lists.md 'cargo r -q --example example_program -- --uppercase --use-lists --interactive --rpc' --config private/config.yml"
+example-config-file = "cargo r -- test ./private/specification.lists.md 'cargo r -q --example example_program_stdin -- --uppercase --use-lists --interactive --rpc' --config private/config.yml"
+
+[[test]]
+name = "specification"
+harness = false
+
+[[example]]
+name = "example_program_compiled"
+crate-type = ["cdylib"]

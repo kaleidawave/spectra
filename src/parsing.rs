@@ -1,18 +1,37 @@
 use super::utilities::TextWithSource;
 use super::{Input, Options, Test, options::TransformOutput};
+
 use simple_markdown_parser::{CodeBlock, MarkdownElement, QuoteBlock, parse};
 use simple_yaml_parser::{RootYAMLValue, YAMLKey, parse as parse_yaml};
 
-pub(crate) fn parse_yaml_config(content: &str) -> Options {
+pub type Unknown = Vec<String>;
+
+pub(crate) fn parse_yaml_config(content: &str) -> Result<Options, Unknown> {
     let mut options = Options::default();
+    let mut unknown = Vec::new();
+
     parse_yaml(&content, |keys, value| {
-        parse_yaml_keys(keys, value, &mut options);
+        // .clone()
+        let result = parse_yaml_keys(keys, value, &mut options);
+        if let Err(()) = result {
+            //  {value:?}
+            unknown.push(format!("unknown {keys:?}"));
+        }
     })
     .expect("invalid file");
-    options
+
+    if unknown.is_empty() {
+        Ok(options)
+    } else {
+        Err(unknown)
+    }
 }
 
-fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: &mut Options) {
+fn parse_yaml_keys<'a>(
+    keys: &[YAMLKey<'a>],
+    value: RootYAMLValue<'a>,
+    options: &mut Options,
+) -> Result<(), ()> {
     use YAMLKey::Slice;
 
     match keys {
@@ -25,8 +44,8 @@ fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: 
         // 	}
         // }
         [Slice("include-language-as-option")] => {
-            // prepends *language*\n---\n
-            todo!();
+            options.include_language_as_option = true;
+            Ok(())
         }
         [Slice("transform")] => {
             // removes lines that end in some substring
@@ -38,33 +57,37 @@ fn parse_yaml_keys<'a>(keys: &[YAMLKey<'a>], value: RootYAMLValue<'a>, options: 
                     panic!("unknown {value:?}. expected 'null', 'basic' or 'falsy'");
                 }
             };
+            Ok(())
         }
         [Slice("merge-stderr")] => {
             // TODO
             // removes lines that end in some substring
             options.merge_stderr = true;
+            Ok(())
         }
         [Slice("wildcard-lines")] => {
             // TODO
             // removes lines that end in some substring
             options.wildcard_lines = true;
+            Ok(())
         }
-        [Slice("lists-as-code-blocks")] => {
+        [Slice("lists-as-expected")] => {
             // TODO
-            options.lists_as_code_blocks = true;
+            options.lists_as_expected = true;
             // if let RootYAMLValue::Boolean(value) = value {
             // } else {
             //     eprintln!("expected boolean");
             // }
+            Ok(())
         }
-        keys => {
-            eprintln!("unknown {keys:?} {value:?}");
-        }
+        _keys => Err(()),
     }
 }
 
+pub type SpecificationError = simple_markdown_parser::MarkdownParseError<Unknown>;
+
 #[must_use]
-pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
+pub fn extract_tests(content: &str, parent_options: &Options) -> Result<Input, SpecificationError> {
     let mut tests: Vec<Test> = Vec::new();
 
     // TODO
@@ -84,27 +107,30 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
     let mut test_arguments: String = String::new();
     let mut test_expected: TextWithSource = TextWithSource::new();
 
-    // Includes the level
+    // Includes the heading level
     let mut skip_level: Option<u8> = None;
+
+    // Default
+    let runner_name = String::new();
 
     // TODO
     // let mut only_language: Option<String> = None;
 
-    let result = parse::<()>(content, |element| {
+    parse::<Unknown>(content, |element| {
         let mut is_with = false;
 
         // TODO
         // let _empty_blocks = false;
 
-        let add_new = if let MarkdownElement::Heading { level, .. } = element {
+        let add_new = if let MarkdownElement::Heading { .. } = element {
             if test_expected.is_empty() {
                 test_case.clear();
                 false
             } else {
-                level >= 3
+                true
             }
         } else if let MarkdownElement::CodeBlock(_) = element {
-            !test_expected.is_empty()
+            test_expected.is_some()
         } else {
             false
         };
@@ -113,13 +139,13 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
             let skip = skip_level.is_some();
 
             let name: String = if let MarkdownElement::Heading { .. } = element {
-                if in_block > 0 {
-                    in_block += 1;
-                    format!("{test_name} ({in_block})")
+                let name = if in_block > 0 {
+                    format!("{test_name} ({in_block})", in_block = in_block + 1)
                 } else {
-                    in_block = 0;
                     std::mem::take(&mut test_name)
-                }
+                };
+                in_block = 0;
+                name
             } else if let MarkdownElement::CodeBlock(_) = element {
                 in_block += 1;
                 format!("{test_name} ({in_block})")
@@ -152,6 +178,7 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                 wildcard_lines,
                 merge_stderr,
                 transform,
+                runner_name: runner_name.clone(),
             };
 
             tests.push(test);
@@ -159,26 +186,21 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
 
         match element {
             MarkdownElement::Frontmatter(frontmatter) => {
-                let result = frontmatter
-                    .parse_yaml(|keys, value| parse_yaml_keys(keys, value, &mut file_options));
+                let result = frontmatter.parse_yaml(|keys, value| {
+                    parse_yaml_keys(keys, value, &mut file_options).expect("TODO raise")
+                });
                 if let Err(err) = result {
                     eprintln!("error parsing yaml {err:?}");
                 }
             }
             MarkdownElement::Heading { level, content } => {
                 // TODO
-                let (skip, content): (bool, &str) =
+                let (skip, heading): (bool, &str) =
                     if let Some(after) = content.0.trim_end().strip_suffix("(skip)") {
                         (true, after)
                     } else {
                         (false, &content.0)
                     };
-
-                if level >= 3 {
-                    test_name = content.to_owned(); //.no_decoration();
-                } else {
-                    section = content.to_owned(); // .no_decoration();
-                }
 
                 // Controls level of skip
                 if let Some(current_skip_level) = skip_level {
@@ -187,6 +209,14 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                     }
                 } else if skip {
                     skip_level = Some(level);
+                }
+
+                let heading = heading.trim_end();
+
+                if level >= 3 {
+                    test_name = heading.to_owned(); //.no_decoration();
+                } else {
+                    section = heading.to_owned(); // .no_decoration();
                 }
             }
             MarkdownElement::Paragraph(inner) => {
@@ -199,10 +229,10 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                 }
             }
             MarkdownElement::List(list) => {
-                let lists_as_code_blocks =
-                    parent_options.lists_as_code_blocks || file_options.lists_as_code_blocks;
+                let lists_as_expected =
+                    parent_options.lists_as_expected || file_options.lists_as_expected;
                 let should_add =
-                    lists_as_code_blocks && (!test_case.is_empty() && test_expected.is_empty());
+                    lists_as_expected && (!test_case.is_empty() && test_expected.is_empty());
                 if should_add {
                     let inner = &list.0.0;
                     let start = inner.as_ptr() as usize - content.as_ptr() as usize;
@@ -212,15 +242,75 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
                     test_expected = TextWithSource(inner, position);
                 }
             }
-            MarkdownElement::CodeBlock(CodeBlock { raw_code, .. }) => {
+            MarkdownElement::CodeBlock(CodeBlock {
+                raw_code, language, ..
+            }) => {
                 if !test_name.is_empty() {
-                    if test_case.is_empty() {
-                        raw_code.clone_into(&mut test_case);
-                    } else if test_expected.is_empty() {
-                        let inner = raw_code;
-                        let start = inner.as_ptr() as usize - content.as_ptr() as usize;
-                        test_expected =
-                            TextWithSource(inner.to_owned(), start..(start + inner.len()));
+                    // TODO transform if in quote?
+                    let inner = raw_code;
+                    if let "shell" | "zsh" | "bash" = language {
+                        let mut multiple: Option<usize> = None;
+                        // TODO move
+                        for part in raw_code.split('>') {
+                            if let Some((command, result)) = part.split_once('\n') {
+                                let at_end = inner.as_ptr() as usize + inner.len()
+                                    == result.as_ptr() as usize + result.len();
+                                if multiple.is_none() && !at_end {
+                                    multiple = Some(1);
+                                }
+
+                                let inner = result;
+                                let start = inner.as_ptr() as usize - content.as_ptr() as usize;
+                                let position = start..(start + inner.len());
+                                let expected = TextWithSource(inner.to_owned(), position);
+
+                                let test = Test {
+                                    name: if let Some(idx) = multiple {
+                                        format!("{test_name} ({idx})")
+                                    } else {
+                                        std::mem::take(&mut test_name)
+                                    },
+                                    skip: skip_level.is_some(),
+                                    section: section.clone(),
+                                    // TODO clone
+                                    arguments: std::mem::take(&mut test_arguments),
+                                    case: command.to_owned(),
+                                    expected,
+                                    // TODO
+                                    wildcard_lines: Default::default(),
+                                    merge_stderr: Default::default(),
+                                    transform: Default::default(),
+                                    // TODO temp
+                                    runner_name: String::new(),
+                                    // runner_name: language.to_owned(),
+                                };
+
+                                tests.push(test);
+
+                                if let Some(ref mut multiple) = multiple {
+                                    *multiple += 1;
+                                }
+                            }
+                        }
+                    } else {
+                        if test_case.is_empty() {
+                            use std::fmt::Write;
+
+                            let include_language_as_option = parent_options
+                                .include_language_as_option
+                                || file_options.include_language_as_option;
+                            if include_language_as_option {
+                                write!(&mut test_case, "{language} ").unwrap();
+                            }
+
+                            // TODO options here
+
+                            write!(&mut test_case, "{raw_code}").unwrap();
+                        } else if test_expected.is_empty() {
+                            let start = inner.as_ptr() as usize - content.as_ptr() as usize;
+                            let position = start..(start + inner.len());
+                            test_expected = TextWithSource(inner.to_owned(), position);
+                        }
                     }
                 }
             }
@@ -234,11 +324,10 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
 
         last_was_with = is_with;
         Ok(())
-    });
+    })?;
 
-    assert!(result.is_ok(), "{result:?}");
     if !test_expected.is_empty() {
-        let skip = test_name.ends_with("(skip)");
+        let skip = skip_level.is_some();
 
         let name = if in_block > 0 {
             in_block += 1;
@@ -272,15 +361,16 @@ pub fn extract_tests(content: &str, parent_options: &Options) -> Input {
             wildcard_lines,
             merge_stderr,
             transform,
+            runner_name,
         };
 
         tests.push(test);
     }
 
-    Input {
+    Ok(Input {
         tests,
         expected_runner,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -292,19 +382,21 @@ mod tests {
         let specification_uppercase = extract_tests(
             include_str!("../include/specification.uppercase.md"),
             &Default::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(specification_uppercase.tests.len(), 3);
 
         let specification_uppercase = extract_tests(
             include_str!("../include/specification.lists.md"),
             &Default::default(),
-        );
+        )
+        .unwrap();
         assert_eq!(specification_uppercase.tests.len(), 3);
 
         {
             static SPECIFICATION_OPTIONS: &str =
                 include_str!("../include/specification.options.md");
-            let items = extract_tests(SPECIFICATION_OPTIONS, &Default::default());
+            let items = extract_tests(SPECIFICATION_OPTIONS, &Default::default()).unwrap();
             assert_eq!(items.tests.len(), 2);
             assert!(items.tests[0].merge_stderr);
             assert!(!items.tests[1].merge_stderr);
@@ -326,7 +418,7 @@ two
         "
         .trim();
 
-        let items = extract_tests(source, &Default::default());
+        let items = extract_tests(source, &Default::default()).unwrap();
         assert_eq!(items.tests.len(), 0, "{tests:?}", tests = items.tests);
     }
 
@@ -350,7 +442,7 @@ TWO
         "
         .trim();
 
-        let items = extract_tests(source, &Default::default());
+        let items = extract_tests(source, &Default::default()).unwrap();
         assert_eq!(items.tests.len(), 2);
 
         assert_eq!(items.tests[0].name, "B (1)");

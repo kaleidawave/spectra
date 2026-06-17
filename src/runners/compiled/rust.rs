@@ -35,22 +35,55 @@ fn test() {
 
 impl Rust {
     #[allow(clippy::missing_transmute_annotations, clippy::used_underscore_binding)]
-    pub fn new(path: &str, name: &str) -> Result<Self, String> {
+    pub fn new(path: &str, name: &str, example: Option<&str>) -> Result<Self, String> {
+        let target_args: &[&str] = if let Some(example) = example {
+            &["--example", example]
+        } else {
+            &["--lib"]
+        };
+
+        // cargo rustc --crate-type cdylib (--lib or --example)
         let output = std::process::Command::new("cargo")
             .arg("rustc")
             .arg("--crate-type")
             .arg("cdylib")
             .arg("--message-format")
             .arg("json")
+            .args(target_args)
             .stderr(std::process::Stdio::inherit())
             .current_dir(path)
             .output();
 
         let Ok(output) = output else {
-            return Err("could not build library".to_owned());
+            // Run the compiler again but print the errors to reader usable form.
+            // Not sure if there is a better way?
+            let _output = std::process::Command::new("cargo")
+                .arg("rustc")
+                .arg("--crate-type")
+                .arg("cdylib")
+                .args(target_args)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .current_dir(path)
+                .output();
+
+            return Err(format!(
+                "could not build library ({name:?}) in {path:?} (error running command)"
+            ));
         };
         if !output.status.success() {
-            return Err("could not build library".to_owned());
+            // Run the compiler again but print the errors to reader usable form.
+            // Not sure if there is a better way?
+            let _output = std::process::Command::new("cargo")
+                .arg("rustc")
+                .arg("--crate-type")
+                .arg("cdylib")
+                .args(target_args)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .current_dir(path)
+                .output();
+            return Err(String::new());
         }
 
         let out_json = str::from_utf8(&output.stdout).unwrap();
@@ -79,15 +112,21 @@ impl Rust {
 
 impl Runner for Rust {
     fn run(&mut self, test: &Test) -> Result<(String, String), String> {
-        let out = unsafe { (self.function)(&test.case) };
-        match out {
-            Ok(out) => {
+        // let thread =
+        //     std::thread::scope(move |s| {
+        //         s.spawn(move ||  })
+        //     });
+        //     = thread.join();
+        // TODO wrap in thread spawn?
+        let case: &str = &test.case;
+        let result: Result<_, ()> = Ok(unsafe { (self.function)(case) });
+        match result {
+            Ok(Ok(out)) => {
                 // FUTURE collect stderr with technique
                 Ok((out, String::new()))
             }
-            Err(out) => Err(out),
+            Ok(Err(out)) => Err(out),
+            Err(_) => Err(format!("panicked!!")),
         }
     }
-
-    fn close(self) {}
 }
